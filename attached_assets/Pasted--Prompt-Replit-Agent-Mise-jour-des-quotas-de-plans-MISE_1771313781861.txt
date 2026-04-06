@@ -1,0 +1,76 @@
+# Prompt Replit Agent — Mise à jour des quotas de plans
+
+```
+MISE À JOUR DES QUOTAS DE PLANS SAAS
+
+Les prix restent les mêmes, on met juste à jour les limites de voyages actifs par plan pour être cohérent avec la réalité du métier de travel planner.
+
+=== MODIFIER server/stripe.ts (si le fichier existe déjà après le prompt Stripe) ===
+
+Mettre à jour PLAN_LIMITS :
+
+export const PLAN_LIMITS = {
+  free:   { maxTrips: 1,  maxAdmins: 1,  name: "Gratuit", hasAI: false, hasWhiteLabel: false },
+  solo:   { maxTrips: 5,  maxAdmins: 1,  name: "Solo",    hasAI: true,  hasWhiteLabel: false },
+  pro:    { maxTrips: 15, maxAdmins: 3,  name: "Pro",     hasAI: true,  hasWhiteLabel: false },
+  agency: { maxTrips: -1, maxAdmins: -1, name: "Agence",  hasAI: true,  hasWhiteLabel: true },
+} as const;
+
+=== SI server/stripe.ts n'existe pas encore (le prompt Stripe n'a pas encore été exécuté) ===
+
+Alors mettre à jour les valeurs dans TOUS les endroits où les quotas sont codés en dur :
+
+1. Dans server/routes.ts, si la logique de quota est dans la route POST /api/admin/trips :
+   - free = 1 voyage max
+   - solo = 5 voyages max
+   - pro = 15 voyages max
+   - agency = illimité (-1)
+
+2. Dans shared/models/auth.ts, le default de maxTrips reste à 1 (plan gratuit par défaut) :
+   maxTrips: integer("max_trips").default(1),
+
+3. Dans la route POST /api/auth/register (si elle existe déjà), mettre à jour la logique de maxTrips lors de l'inscription :
+   plan === "solo" ? 5 : plan === "pro" ? 15 : plan === "agency" ? -1 : 1
+
+=== METTRE À JOUR LA PAGE PRICING (si client/src/pages/pricing.tsx existe) ===
+
+Les features affichées pour chaque plan :
+
+Plan Solo — 19€/mois (190€/an) :
+- Jusqu'à 5 voyages actifs
+- 1 compte administrateur
+- Génération IA des itinéraires
+- Partage client par lien
+- Check-list & budget
+- Support par email
+
+Plan Pro — 49€/mois (490€/an) — RECOMMANDÉ :
+- Jusqu'à 15 voyages actifs
+- 3 comptes administrateurs
+- Tout ce que Solo inclut
+- Documents & guide PDF
+- Google My Maps intégré
+- Support prioritaire
+
+Plan Agence — 99€/mois (990€/an) :
+- Voyages illimités
+- Admins illimités
+- White-label (votre marque)
+- Toutes les fonctionnalités Pro
+- Onboarding personnalisé
+- Support dédié
+
+=== METTRE À JOUR LA BANNIÈRE ADMIN (si elle existe dans client/src/pages/admin.tsx) ===
+
+Le quota affiché doit refléter les nouvelles limites :
+- "2/5 voyages actifs" pour Solo
+- "8/15 voyages actifs" pour Pro
+- "12/∞ voyages actifs" pour Agence
+
+FICHIERS À MODIFIER :
+- server/stripe.ts (si existe) : PLAN_LIMITS
+- server/routes.ts : logique de quota si codée en dur
+- client/src/pages/pricing.tsx (si existe) : features des plans
+- client/src/pages/admin.tsx (si bannière existe) : affichage quota
+- client/src/pages/register.tsx (si existe) : maxTrips à l'inscription
+```

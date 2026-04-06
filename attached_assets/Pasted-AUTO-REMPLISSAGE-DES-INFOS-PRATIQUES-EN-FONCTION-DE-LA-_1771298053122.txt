@@ -1,0 +1,151 @@
+AUTO-REMPLISSAGE DES INFOS PRATIQUES EN FONCTION DE LA DESTINATION
+
+Dans le bloc "Infos pratiques" (section "infos" du nouveau TripEditor avec les 9 blocs), ajouter un remplissage automatique.
+
+COMPORTEMENT :
+
+1. Quand l'admin ouvre le Dialog "Infos pratiques", en haut du formulaire afficher :
+   - Un texte : "Destination actuelle : [trip.destination]"
+   - Un bouton "🪄 Remplir automatiquement" (style gradient violet, comme le bouton IA existant)
+   - Ce bouton est DISABLED si trip.destination est vide/null (avec un message "Définissez d'abord une destination dans le bloc 'Le Voyage'")
+
+2. Au clic sur "Remplir automatiquement" :
+   - Appel à une NOUVELLE route : POST /api/admin/trips/:id/auto-fill-info
+   - Le body contient : { destination: trip.destination }
+   - Le serveur utilise un MAPPING STATIQUE (pas d'API externe) pour les pays les plus courants
+   - Loading state avec spinner pendant le traitement
+
+3. CÔTÉ SERVEUR — Créer la route POST /api/admin/trips/:id/auto-fill-info dans server/routes.ts :
+```js
+const COUNTRY_INFO: Record<string, any> = {
+  "thaïlande": {
+    emergencyLocal: "191", emergencyPolice: "191", emergencyAmbulance: "1669", emergencyFire: "199",
+    embassy: "Ambassade de France, 35 Charoenkrung Soi 36, Bangkok", embassyPhone: "+66 2 657 5100",
+    timezone: "Asia/Bangkok", timezoneOffset: "UTC+7 (+6h vs Paris en été, +5h en hiver)",
+    localCurrency: "Baht thaïlandais", localCurrencySymbol: "฿", exchangeRate: 38,
+    tippingCulture: "Pas obligatoire mais apprécié. 20-50 THB au restaurant, arrondir au supérieur pour les taxis.",
+    voltage: "220V / 50Hz", plugType: "Type A, B, C (pas d'adaptateur nécessaire pour les prises françaises)",
+    simWifi: "Carte SIM TrueMove H ou AIS disponible à l'aéroport (~300 THB / 8 jours). WiFi gratuit dans la plupart des hôtels et cafés."
+  },
+  "japon": {
+    emergencyLocal: "110 (police) / 119 (ambulance)", emergencyPolice: "110", emergencyAmbulance: "119", emergencyFire: "119",
+    embassy: "Ambassade de France, 4-11-44 Minami-Azabu, Minato-ku, Tokyo", embassyPhone: "+81 3 5798 6000",
+    timezone: "Asia/Tokyo", timezoneOffset: "UTC+9 (+8h vs Paris en été, +7h en hiver)",
+    localCurrency: "Yen japonais", localCurrencySymbol: "¥", exchangeRate: 162,
+    tippingCulture: "Le pourboire n'existe PAS au Japon. Il peut même être considéré comme impoli.",
+    voltage: "100V / 50-60Hz", plugType: "Type A (prises américaines plates). Adaptateur nécessaire pour les prises françaises.",
+    simWifi: "Pocket WiFi recommandé (Japan Wireless, ~5000¥/semaine). SIM data chez Sakura Mobile ou à l'aéroport."
+  },
+  "brésil": {
+    emergencyLocal: "190 (police) / 192 (SAMU)", emergencyPolice: "190", emergencyAmbulance: "192", emergencyFire: "193",
+    embassy: "Ambassade de France, SES Av. das Nações, Lote 04, Quadra 801, Brasília", embassyPhone: "+55 61 3222 3999",
+    timezone: "America/Sao_Paulo", timezoneOffset: "UTC-3 (-4h vs Paris en été, -3h en hiver)",
+    localCurrency: "Real brésilien", localCurrencySymbol: "R$", exchangeRate: 5.5,
+    tippingCulture: "10% de service souvent inclus dans l'addition. Sinon, 10% est la norme.",
+    voltage: "110V ou 220V (variable selon la région)", plugType: "Type N (spécifique au Brésil, 3 broches rondes). Adaptateur nécessaire.",
+    simWifi: "SIM prépayée Claro ou Vivo disponible dans les boutiques et aéroports (~R$50 pour 10 Go)."
+  },
+  "indonésie": {
+    emergencyLocal: "112", emergencyPolice: "110", emergencyAmbulance: "118", emergencyFire: "113",
+    embassy: "Ambassade de France, Jl. M.H. Thamrin No. 20, Jakarta", embassyPhone: "+62 21 2355 7600",
+    timezone: "Asia/Jakarta", timezoneOffset: "UTC+7 à UTC+9 selon la région (+6h vs Paris pour Bali)",
+    localCurrency: "Roupie indonésienne", localCurrencySymbol: "Rp", exchangeRate: 17000,
+    tippingCulture: "5-10% au restaurant si le service n'est pas inclus. Prévoir de petits billets pour les guides et chauffeurs.",
+    voltage: "220V / 50Hz", plugType: "Type C et F (prises européennes, compatible sans adaptateur)",
+    simWifi: "SIM Telkomsel ou XL à l'aéroport (~100 000 Rp pour 15 Go). WiFi disponible dans les hôtels et cafés."
+  },
+  "mexique": {
+    emergencyLocal: "911", emergencyPolice: "911", emergencyAmbulance: "911", emergencyFire: "911",
+    embassy: "Ambassade de France, Campos Elíseos 339, Polanco, Mexico", embassyPhone: "+52 55 9171 9700",
+    timezone: "America/Mexico_City", timezoneOffset: "UTC-6 (-7h vs Paris en été, -7h en hiver)",
+    localCurrency: "Peso mexicain", localCurrencySymbol: "$MXN", exchangeRate: 19,
+    tippingCulture: "10-15% au restaurant est la norme. Pourboire attendu pour les services (bagagistes, femmes de chambre).",
+    voltage: "120V / 60Hz", plugType: "Type A et B (prises américaines plates). Adaptateur nécessaire.",
+    simWifi: "SIM Telcel à l'aéroport ou en boutique OXXO (~200 MXN pour 5 Go). WiFi dans la plupart des hôtels."
+  },
+  "italie": {
+    emergencyLocal: "112", emergencyPolice: "113", emergencyAmbulance: "118", emergencyFire: "115",
+    embassy: "Ambassade de France, Piazza Farnese 67, Rome", embassyPhone: "+39 06 686 011",
+    timezone: "Europe/Rome", timezoneOffset: "UTC+1 (même fuseau que la France)",
+    localCurrency: "Euro", localCurrencySymbol: "€", exchangeRate: 1,
+    tippingCulture: "Pas obligatoire. Le 'coperto' (couvert) de 1-3€ est courant. Arrondir l'addition suffit.",
+    voltage: "220V / 50Hz", plugType: "Type L et C. Les prises françaises fonctionnent souvent, mais un adaptateur Type L peut être utile.",
+    simWifi: "Carte UE : pas de frais de roaming. Sinon, SIM TIM ou Vodafone en boutique (~10€ pour 10 Go)."
+  },
+  "espagne": {
+    emergencyLocal: "112", emergencyPolice: "091", emergencyAmbulance: "061", emergencyFire: "080",
+    embassy: "Ambassade de France, Calle Salustiano Olózaga 9, Madrid", embassyPhone: "+34 91 423 89 00",
+    timezone: "Europe/Madrid", timezoneOffset: "UTC+1 (même fuseau que la France)",
+    localCurrency: "Euro", localCurrencySymbol: "€", exchangeRate: 1,
+    tippingCulture: "Pas obligatoire. Laisser quelques pièces ou arrondir l'addition est apprécié.",
+    voltage: "230V / 50Hz", plugType: "Type C et F (identiques à la France, pas d'adaptateur nécessaire)",
+    simWifi: "Carte UE : pas de frais de roaming. Sinon, SIM Movistar ou Orange en boutique."
+  },
+  "états-unis": {
+    emergencyLocal: "911", emergencyPolice: "911", emergencyAmbulance: "911", emergencyFire: "911",
+    embassy: "Ambassade de France, 4101 Reservoir Rd NW, Washington DC", embassyPhone: "+1 202 944 6000",
+    timezone: "America/New_York (variable selon l'état)", timezoneOffset: "UTC-5 à UTC-8 (-6h à -9h vs Paris)",
+    localCurrency: "Dollar américain", localCurrencySymbol: "$", exchangeRate: 1.08,
+    tippingCulture: "OBLIGATOIRE : 15-20% au restaurant, bar. 1-2$ par boisson au bar. 2-5$ par nuit au femme de chambre.",
+    voltage: "120V / 60Hz", plugType: "Type A et B (prises plates). Adaptateur nécessaire pour les appareils français.",
+    simWifi: "SIM T-Mobile ou AT&T prépayée (~$30/mois). eSIM recommandée (Airalo, Holafly)."
+  },
+  "grèce": {
+    emergencyLocal: "112", emergencyPolice: "100", emergencyAmbulance: "166", emergencyFire: "199",
+    embassy: "Ambassade de France, 7 Vassilissis Sofias, Athènes", embassyPhone: "+30 210 339 1000",
+    timezone: "Europe/Athens", timezoneOffset: "UTC+2 (+1h vs Paris)",
+    localCurrency: "Euro", localCurrencySymbol: "€", exchangeRate: 1,
+    tippingCulture: "5-10% au restaurant est apprécié. Laisser la monnaie au taxi.",
+    voltage: "220V / 50Hz", plugType: "Type C et F (identiques à la France, pas d'adaptateur nécessaire)",
+    simWifi: "Carte UE : pas de frais de roaming. Sinon, SIM Cosmote ou Vodafone en boutique."
+  },
+  "maroc": {
+    emergencyLocal: "15 (police) / 150 (pompiers)", emergencyPolice: "19", emergencyAmbulance: "15", emergencyFire: "15",
+    embassy: "Ambassade de France, 1 Rue Sahnoun, Rabat", embassyPhone: "+212 537 689 700",
+    timezone: "Africa/Casablanca", timezoneOffset: "UTC+1 (même fuseau que la France, pas de changement d'heure)",
+    localCurrency: "Dirham marocain", localCurrencySymbol: "MAD", exchangeRate: 10.8,
+    tippingCulture: "10% au restaurant. Pourboire attendu pour les guides, gardiens de parking (5-10 MAD).",
+    voltage: "220V / 50Hz", plugType: "Type C et E (identiques à la France, pas d'adaptateur nécessaire)",
+    simWifi: "SIM Maroc Telecom, Inwi ou Orange disponible partout (~50 MAD pour 5 Go). WiFi dans les riads et cafés."
+  },
+  "vietnam": {
+    emergencyLocal: "113 (police) / 115 (ambulance)", emergencyPolice: "113", emergencyAmbulance: "115", emergencyFire: "114",
+    embassy: "Ambassade de France, 57 Tran Hung Dao, Hanoi", embassyPhone: "+84 24 3944 5700",
+    timezone: "Asia/Ho_Chi_Minh", timezoneOffset: "UTC+7 (+6h vs Paris en été, +5h en hiver)",
+    localCurrency: "Dong vietnamien", localCurrencySymbol: "₫", exchangeRate: 27000,
+    tippingCulture: "Pas obligatoire mais apprécié. 5-10% dans les restaurants touristiques. Arrondir pour les taxis.",
+    voltage: "220V / 50Hz", plugType: "Type A, C et G (variable). Un adaptateur universel est recommandé.",
+    simWifi: "SIM Viettel ou Mobifone à l'aéroport (~100 000 VND pour 30 Go). WiFi gratuit partout."
+  },
+  "portugal": {
+    emergencyLocal: "112", emergencyPolice: "112", emergencyAmbulance: "112", emergencyFire: "112",
+    embassy: "Ambassade de France, Rua Santos-o-Velho 5, Lisbonne", embassyPhone: "+351 21 393 9100",
+    timezone: "Europe/Lisbon", timezoneOffset: "UTC+0 (-1h vs Paris)",
+    localCurrency: "Euro", localCurrencySymbol: "€", exchangeRate: 1,
+    tippingCulture: "5-10% au restaurant est apprécié mais pas obligatoire.",
+    voltage: "230V / 50Hz", plugType: "Type C et F (identiques à la France, pas d'adaptateur nécessaire)",
+    simWifi: "Carte UE : pas de frais de roaming. Sinon, SIM MEO ou NOS en boutique."
+  }
+};
+```
+
+4. La logique serveur :
+   - Extraire le pays de la destination (ex: "Bangkok, Thaïlande" → chercher "thaïlande" dans les clés)
+   - Normaliser : toLowerCase(), trim(), enlever les accents pour la recherche
+   - Si trouvé : mettre à jour trip.travelInfo avec les données et renvoyer le trip mis à jour
+   - Si pas trouvé : renvoyer 404 avec { message: "Pays non reconnu. Remplissez les infos manuellement." }
+
+5. CÔTÉ CLIENT dans le Dialog "Infos pratiques" :
+   - Au succès : les champs se pré-remplissent avec les données reçues
+   - L'admin peut MODIFIER chaque champ avant de sauvegarder
+   - Toast : "Infos pratiques pré-remplies pour la Thaïlande ! Vérifiez et ajustez si nécessaire."
+   - Si erreur 404 : toast warning "Pays non reconnu, remplissez manuellement"
+
+6. Pour la recherche du pays, utiliser une fonction robuste qui :
+   - Cherche dans trip.destination (ex: "Bali, Indonésie" ou "Tokyo" ou "Brésil")
+   - Compare avec les clés du mapping en normalisant (sans accents, lowercase)
+   - Peut aussi matcher des noms de villes connues aux pays (bangkok → thaïlande, tokyo → japon, rome → italie, bali → indonésie, etc.)
+
+FICHIERS À MODIFIER/CRÉER :
+- server/routes.ts : nouvelle route POST /api/admin/trips/:id/auto-fill-info + mapping COUNTRY_INFO
+- client/src/pages/admin.tsx : bouton "Remplir automatiquement" dans le Dialog Infos pratiques

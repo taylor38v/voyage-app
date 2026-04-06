@@ -1,0 +1,93 @@
+CRÉER LA PAGE PRICING PUBLIQUE
+
+=== 1. CRÉER client/src/pages/pricing.tsx ===
+
+Page accessible SANS authentification, affichée sur la route /pricing.
+
+Design de la page :
+
+HEADER :
+- Navbar : logo "Voyageo" à gauche, boutons "Connexion" et theme toggle à droite
+- Titre principal : "Des prix simples et transparents"
+- Sous-titre : "Choisissez le plan adapté à votre activité de travel planner"
+- Toggle mensuel/annuel (Switch ou boutons Tabs) avec badge "2 mois offerts" sur annuel
+
+GRILLE DE PRICING (3 colonnes desktop, 1 colonne mobile) :
+
+PLAN SOLO — 19€/mois ou 190€/an
+- Badge : aucun
+- Description : "Pour les travel planners indépendants qui démarrent"
+- Features (liste avec check icons verts) :
+  * Jusqu'à 10 voyages actifs
+  * 1 compte administrateur
+  * Génération IA des itinéraires
+  * Partage client par lien
+  * Check-list & budget
+  * Support par email
+- CTA : Bouton "Commencer avec Solo" (variant outline)
+
+PLAN PRO — 49€/mois ou 490€/an — RECOMMANDÉ
+- Badge : "Le plus populaire" (badge violet gradient)
+- Card mise en avant : border-primary, shadow-xl, scale légèrement plus grande (scale-105)
+- Description : "Pour les travel planners établis avec du volume"
+- Features (tout ce que Solo a +) :
+  * Jusqu'à 50 voyages actifs
+  * 3 comptes administrateurs
+  * Génération IA des itinéraires
+  * Partage client par lien
+  * Check-list & budget
+  * Documents & guide PDF
+  * Google My Maps intégré
+  * Support prioritaire
+- CTA : Bouton "Commencer avec Pro" (variant default, gradient bg)
+
+PLAN AGENCE — 99€/mois ou 990€/an
+- Badge : aucun
+- Description : "Pour les agences de voyage sur-mesure"
+- Features (tout ce que Pro a +) :
+  * Voyages illimités
+  * Admins illimités
+  * White-label (votre marque)
+  * Toutes les fonctionnalités Pro
+  * Onboarding personnalisé
+  * Support dédié
+- CTA : Bouton "Commencer avec Agence" (variant outline)
+
+EN DESSOUS : Section "Gratuit pour commencer"
+- Texte : "Testez Voyageo gratuitement avec 1 voyage actif. Aucune carte bancaire requise."
+- Bouton : "Créer mon compte gratuit" → redirige vers /api/login
+
+EN DESSOUS : FAQ minimaliste (Accordion shadcn, 4-5 questions) :
+- "Puis-je changer de plan à tout moment ?" → "Oui, vous pouvez upgrader ou downgrader à tout moment. Le changement prend effet immédiatement."
+- "Qu'est-ce qu'un voyage actif ?" → "Un voyage au statut 'brouillon' ou 'actif'. Les voyages archivés ne comptent pas dans votre quota."
+- "Comment fonctionne le paiement ?" → "Le paiement est sécurisé via Stripe. Vous pouvez payer par carte bancaire. Les factures sont disponibles dans votre espace client."
+- "Puis-je annuler mon abonnement ?" → "Oui, à tout moment depuis votre espace de gestion. Vous conservez l'accès jusqu'à la fin de la période payée."
+- "Le white-label, c'est quoi ?" → "Avec le plan Agence, vos clients voient votre marque (logo, nom, couleurs) au lieu de Voyageo. Parfait pour les agences."
+
+FOOTER simple avec copyright
+
+=== 2. COMPORTEMENT DES BOUTONS CTA ===
+
+Chaque bouton CTA doit :
+- Si l'utilisateur N'EST PAS connecté : rediriger vers /api/login (authentification)
+- Si l'utilisateur EST connecté : appeler POST /api/stripe/checkout avec le priceId correspondant au plan ET à l'intervalle (mensuel/annuel), puis rediriger vers l'URL Stripe Checkout retournée
+
+Pour cela, stocker les Price IDs en dur dans le composant pricing via des constantes :
+```ts
+const PRICES = {
+  solo: {
+    monthly: { price: 19, priceId: import.meta.env.VITE_STRIPE_PRICE_SOLO_MONTHLY || "" },
+    yearly: { price: 190, priceId: import.meta.env.VITE_STRIPE_PRICE_SOLO_YEARLY || "" },
+  },
+  pro: {
+    monthly: { price: 49, priceId: import.meta.env.VITE_STRIPE_PRICE_PRO_MONTHLY || "" },
+    yearly: { price: 490, priceId: import.meta.env.VITE_STRIPE_PRICE_PRO_YEARLY || "" },
+  },
+  agency: {
+    monthly: { price: 99, priceId: import.meta.env.VITE_STRIPE_PRICE_AGENCY_MONTHLY || "" },
+    yearly: { price: 990, priceId: import.meta.env.VITE_STRIPE_PRICE_AGENCY_YEARLY || "" },
+  },
+};
+```
+
+Et ajouter dans les Secrets Replit (en plus des variables serveur) :

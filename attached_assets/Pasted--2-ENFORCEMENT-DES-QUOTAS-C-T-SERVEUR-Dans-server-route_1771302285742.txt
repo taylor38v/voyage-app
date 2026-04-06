@@ -1,0 +1,82 @@
+=== 2. ENFORCEMENT DES QUOTAS CÔTÉ SERVEUR ===
+
+Dans server/routes.ts, modifier la route POST /api/admin/trips (création de voyage) :
+
+Remplacer la logique de quota existante (qui utilise adminUser.maxTrips) par une logique basée sur le plan :
+```ts
+// Ancienne logique à remplacer :
+if (adminUser.role !== "super_admin" && adminUser.maxTrips !== -1) {
+  const [countResult] = await db.select({ count: sql<number>`count(*)::int` }).from(trips).where(eq(trips.userId, userId));
+  if ((countResult?.count ?? 0) >= adminUser.maxTrips) {
+    return res.status(403).json({ message: `Quota atteint (${adminUser.maxTrips} voyage(s) maximum)` });
+  }
+}
+
+// Nouvelle logique :
+if (adminUser.role !== "super_admin") {
+  const plan = adminUser.plan || "free";
+  const { PLAN_LIMITS } = await import("./stripe");
+  const limits = PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free;
+  
+  if (limits.maxTrips !== -1) {
+    // Compter seulement les voyages NON archivés (draft + active)
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(trips)
+      .where(and(
+        eq(trips.userId, userId),
+        ne(trips.status, "archived")
+      ));
+    const currentCount = countResult?.count ?? 0;
+    if (currentCount >= limits.maxTrips) {
+      return res.status(403).json({ 
+        message: `Quota atteint (${limits.maxTrips} voyage(s) actif(s) maximum sur le plan ${limits.name}). Archivez des voyages ou passez au plan supérieur.`,
+        upgradeUrl: "/pricing"
+      });
+    }
+  }
+}
+```
+
+=== 3. QUOTA AFFICHÉ DANS LE HEADER ADMIN ===
+
+Modifier la route GET /api/auth/user dans server/replit_integrations/auth/routes.ts pour inclure les infos de plan :
+```ts
+// Ajouter dans la réponse :
+const plan = user.plan || "free";
+const { PLAN_LIMITS } = await import("../../stripe");
+const limits = PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free;
+
+// Compter les voyages actifs (pas archivés)
+const [activeCount] = await db
+  .select({ count: sql<number>`count(*)::int` })
+  .from(trips)
+  .where(and(eq(trips.userId, userId), ne(trips.status, "archived")));
+
+res.json({
+  ...user,
+  currentTripsCount: countResult?.count ?? 0,
+  activeTripsCount: activeCount?.count ?? 0,
+  plan,
+  planLimits: limits,
+});
+```
+
+=== 4. DIALOG D'UPGRADE QUAND QUOTA ATTEINT ===
+
+Dans client/src/pages/admin.tsx, quand la création d'un voyage échoue avec status 403 et que la réponse contient `upgradeUrl`, afficher un Dialog :
+- Titre : "Quota atteint"
+- Message : le message d'erreur retourné
+- Bouton "Voir les plans" → redirige vers /pricing
+- Bouton "Archiver des voyages" → ferme le dialog (l'admin peut archiver manuellement)
+
+=== 5. GESTION DU MESSAGE POST-PAIEMENT ===
+
+Dans AdminPage, détecter le query param `?payment=success` dans l'URL :
+- Si présent, afficher un toast de succès : "Paiement réussi ! Votre plan a été mis à jour."
+- Nettoyer le query param de l'URL avec window.history.replaceState
+
+FICHIERS À MODIFIER :
+- client/src/pages/admin.tsx : bannière plan, dialog upgrade, toast success
+- server/routes.ts : modifier la logique de quota dans POST /api/admin/trips
+- server/replit_integrations/auth/routes.ts : ajouter plan info dans GET /api/auth/user

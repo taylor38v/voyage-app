@@ -1,0 +1,59 @@
+REFONTE MAJEURE DU TRIP EDITOR : REMPLACER LE FORMULAIRE GÉANT PAR UN DASHBOARD DE 9 BLOCS CLIQUABLES
+
+Actuellement le TripEditor affiche TOUT en scrollant : TripForm + DayEditor + ChecklistEditor + DocumentsEditor dans un long formulaire. C'est le bordel.
+
+NOUVEAU DESIGN — Quand on sélectionne un voyage, TripEditor affiche :
+
+A) EN HAUT : Le header du voyage avec :
+   - Emoji + Titre du voyage (gros, font-display)
+   - Destination + Statut (badge)
+   - Lien de partage (copier)
+   - Mini résumé : "12 jours · 2 voyageurs · Budget €1850"
+
+B) EN DESSOUS : Une grille de 9 BLOCS ICÔNES cliquables (grid 3x3 sur desktop, 2 colonnes sur mobile) :
+
+Les 9 blocs sont :
+1. ✈️ "Le Voyage" — icône Plane — Infos principales (titre, destination, sous-titre, emoji, statut, dates, voyageurs, devise)
+2. 👥 "Participants" — icône Users — Participants Tricount
+3. 💰 "Budget" — icône Wallet — Budget par catégorie (hôtel, repas, transport, activités, autre)
+4. 📧 "Clients" — icône Mail — Emails des clients assignés
+5. 🗺️ "Carte" — icône MapIcon — Lien Google My Maps
+6. 🎨 "Apparence" — icône Camera — Photo de couverture + Texte d'accueil + Guide PDF
+7. ℹ️ "Infos pratiques" — icône Info — Urgences, ambassade, fuseau, devise locale, prises, SIM (ce bloc sera auto-rempli dans un futur prompt)
+8. ✅ "Checklist" — icône CheckSquare — Toute la section ChecklistEditor actuelle
+9. 📅 "Planning" — icône Calendar — Toute la section DayEditor actuelle (jours + activités + tips + budgets de jour)
+
+DESIGN DE CHAQUE BLOC/CARD :
+- Card avec effet hover (hover:border-primary/50, hover:bg-primary/5, transition)
+- Icône au centre (taille 28px, text-primary)
+- Label en dessous (text-sm font-medium)
+- Un petit badge indicateur en haut à droite montrant si la section a du contenu :
+  * Bloc 1 : toujours rempli (titre requis)
+  * Bloc 2 : nombre de participants (ex: "3") ou rien
+  * Bloc 3 : total budget si > 0 (ex: "€1850") ou rien
+  * Bloc 4 : nombre d'emails (ex: "2") ou rien
+  * Bloc 5 : petit check vert si une URL est définie
+  * Bloc 6 : check si photo ou texte d'accueil
+  * Bloc 7 : check si infos remplies
+  * Bloc 8 : nombre d'items checklist (ex: "13")
+  * Bloc 9 : nombre de jours (ex: "7 jours")
+
+COMPORTEMENT AU CLIC :
+- Cliquer sur un bloc ouvre un DIALOG (Dialog shadcn) en plein écran sur mobile, grande taille sur desktop (max-w-2xl)
+- Le Dialog contient le formulaire/éditeur correspondant à ce bloc
+- Le bouton "Enregistrer" sauvegarde et ferme le dialog
+- Le TripEditor se rafraîchit pour mettre à jour les badges
+
+IMPLÉMENTATION :
+- Créer un state `activeSection` : null | "voyage" | "participants" | "budget" | "clients" | "carte" | "apparence" | "infos" | "checklist" | "planning"
+- Extraire chaque section du TripForm actuel dans des sous-composants autonomes qui font leur propre mutation PUT /api/admin/trips/:id
+- Les sections "checklist" et "planning" réutilisent les composants ChecklistEditor et DayEditor existants tels quels dans le Dialog
+
+Pour les blocs 1 à 7, chaque Dialog contient un mini-formulaire avec UNIQUEMENT les champs pertinents et un bouton "Enregistrer les modifications" qui fait un PUT /api/admin/trips/:id avec seulement les champs de cette section.
+
+NE PAS utiliser le TripForm monolithique. Le découper en sections indépendantes.
+
+En dessous de la grille 3x3, garder le bouton "Supprimer le voyage" (destructive, petit).
+
+FICHIER À MODIFIER :
+- client/src/pages/admin.tsx : refonte complète du composant TripEditor

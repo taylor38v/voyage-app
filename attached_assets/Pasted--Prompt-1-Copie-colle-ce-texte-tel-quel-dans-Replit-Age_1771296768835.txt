@@ -1,0 +1,68 @@
+# Prompt 1 — Copie-colle ce texte tel quel dans Replit Agent
+
+```
+REFONTE DE LA CRÉATION DE VOYAGE ADMIN
+
+Actuellement quand on clique "Nouveau voyage", ça affiche un formulaire géant TripForm avec des dizaines de champs. C'est trop lourd.
+
+CHANGEMENT VOULU :
+
+1. Le bouton "Nouveau voyage" dans AdminPage ouvre une POPUP (Dialog shadcn) simple et minimaliste avec 3 champs :
+   - Titre de la popup : "Créer un nouveau voyage"
+   - Champ 1 (REQUIRED) : "Nom du voyage" — Input text, placeholder: "Ex: Aventure Brésilienne"
+   - Champ 2 (OPTIONNEL) : "Pays de départ" — Input text, placeholder: "Ex: France"
+   - Champ 3 (OPTIONNEL) : "Destination" — Input text, placeholder: "Ex: Brésil"
+   - Les champs 2 et 3 sont sur la même ligne (grid grid-cols-2 gap-3)
+   - Sous les champs optionnels, un petit texte : "Ces champs sont optionnels et modifiables ensuite"
+   - Boutons en bas : "Annuler" (variant ghost) + "Créer le voyage" (variant default, principal)
+   - Loading state avec Loader2 spinner sur le bouton pendant la requête
+
+2. NOUVEAU CHAMP EN BASE — Ajouter le champ `origin` dans la table trips du schema :
+   - Dans shared/schema.ts, dans la table `trips`, ajouter : origin: text("origin"), (juste après la ligne `destination`)
+   - Ajouter `origin` dans le type Trip (c'est automatique via $inferSelect)
+   - Le champ est nullable, pas de default
+
+3. Au clic sur "Créer le voyage" :
+   - POST /api/admin/trips avec { title: "...", origin: "..." ou null, destination: "..." ou null }
+   - Seul `title` est required, les deux autres sont envoyés seulement si remplis
+   - Le backend utilise les valeurs par défaut du schema pour tout le reste (coverEmoji: "🌴", currency: "€", travelers: 2, status: "draft", etc.)
+   - La popup se ferme
+   - Toast "Voyage créé !"
+   - Le nouveau voyage est AUTOMATIQUEMENT sélectionné dans la liste (setSelectedTrip(newTrip.id))
+
+4. Supprimer l'ancien flow de création :
+   - Supprimer le state `creating` et `setCreating` dans AdminPage
+   - Supprimer le rendu conditionnel `creating ? <div className="bg-card..."><h2>Créer un voyage</h2><TripForm onSaved={...} /></div>` dans AdminPage
+   - Ajouter un state `showCreateDialog` (boolean) pour contrôler la popup
+   - Le bouton "Nouveau voyage" fait maintenant : setShowCreateDialog(true); setAiMode(false);
+
+5. Le bouton "Générer avec l'IA" reste TOTALEMENT INCHANGÉ, il garde son flow actuel avec aiMode.
+
+6. Auto-sélection au chargement : Ajouter un useEffect dans AdminPage :
+   - Si `trips` est chargé, non vide, et `selectedTrip` est null et `aiMode` est false → setSelectedTrip(trips[0].id)
+   - Cela évite d'afficher "Sélectionnez un voyage" quand il y en a déjà
+
+7. Tri des voyages par date de création (plus récent en premier) :
+   - Dans server/routes.ts, route GET /api/admin/trips :
+   - Pour super_admin : changer `await db.select().from(trips)` en `await db.select().from(trips).orderBy(desc(trips.createdAt))`
+   - Pour admin normal : changer `await db.select().from(trips).where(eq(trips.userId, adminUser.id))` en `await db.select().from(trips).where(eq(trips.userId, adminUser.id)).orderBy(desc(trips.createdAt))`
+   - Importer `desc` depuis drizzle-orm si pas déjà importé
+
+8. Mettre à jour le TripForm existant (utilisé dans TripEditor pour l'édition) :
+   - Ajouter un state `origin` dans TripForm : const [origin, setOrigin] = useState(trip?.origin || "")
+   - Ajouter le champ "Pays de départ" dans le formulaire, juste avant le champ "Destination" existant
+   - Inclure `origin: origin || null` dans le mutation.mutate() du handleSubmit
+
+9. Afficher le pays de départ dans la liste des voyages à gauche (AdminPage) :
+   - Sous le titre du trip, à côté de destination, afficher : "{trip.origin} → {trip.destination}" si les deux existent, ou juste l'un des deux s'il n'y en a qu'un, ou "—" si aucun
+
+RÉSUMÉ DES FICHIERS À MODIFIER :
+- shared/schema.ts : ajouter le champ `origin` dans la table trips
+- server/routes.ts : ajouter ORDER BY desc(createdAt) dans GET /api/admin/trips
+- client/src/pages/admin.tsx : 
+  * AdminPage : remplacer le flow `creating` par une Dialog `showCreateDialog`, ajouter useEffect auto-select
+  * TripForm : ajouter le champ origin
+  * Liste des voyages : afficher origin → destination
+
+IMPORTANT : Après avoir modifié le schema, exécuter `npx drizzle-kit push` pour appliquer la migration en base de données.
+```

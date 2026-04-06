@@ -1,0 +1,13 @@
+🔴 Ce qui reste critique
+L'auth est en dur côté client (ligne 87-89). Les mots de passe sont en clair dans le code source. N'importe qui peut ouvrir le JS et voir admin123. Pour un produit payant c'est rédhibitoire — il faut une vraie auth (Supabase Auth, Firebase Auth, ou NextAuth). C'est la priorité n°1.
+Toujours zéro persistance. Tout est en useState — le client rafraîchit la page, il perd ses dépenses, sa checklist, tout. Les jours générés par l'IA disparaissent aussi. Ça tue l'expérience. Il faut au minimum localStorage en attendant une BDD.
+La météo est statique (lignes 24-31). Les données weather sont hardcodées dans CITY_DATA. Pour un travel planner, une météo bidon ça décrédibilise. Branche une API type OpenWeatherMap (gratuite) ou retire le widget plutôt que d'afficher des faux chiffres.
+
+🟠 Améliorations à fort impact
+Le flow admin → client est cassé. L'admin crée un voyage et l'assigne à un email client (ligne 846), mais le client dans USERS a ses trips hardcodés. Il n'y a pas de lien dynamique entre les deux. Quand tu crées un trip pour "nouveau@client.com", ce client ne peut pas se connecter.
+L'IA génère mais ne permet pas d'itérer facilement. L'assistant IA côté éditeur est bien, mais il ajoute toujours des jours en append. Il manque la possibilité de dire "modifie le jour 3" ou "réorganise le programme de Bangkok". Le prompt system pourrait aussi être amélioré pour générer des résultats plus riches (booking URLs, coordonnées GPS plus précises).
+Pas d'export/partage. Le bouton Share2 (ligne 435) fait juste un showNotif("Lien de partage copié !") sans rien copier. Pour un travel planner, le partage du planning (lien unique, PDF, ou WhatsApp) c'est essentiel — le client veut envoyer ça à son/sa partenaire de voyage.
+Le fichier est toujours monolithique (1082 lignes). Mieux structuré que la v1, mais tout dans un seul fichier reste un problème pour la maintenance et les perfs.
+
+🟢 Quick wins pour la v5
+Ajouter localStorage pour persister les trips, checks, et expenses — c'est 10 lignes de code et ça change tout pour l'utilisateur. Connecter OpenWeatherMap sur les coordonnées de chaque ville. Ajouter un vrai bouton "Copier le lien" avec navigator.clipboard. Et ajouter un export PDF basique de l'itinéraire (librairie html2pdf.js ou jsPDF).

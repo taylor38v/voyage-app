@@ -1,0 +1,22 @@
+databases:
+  - name: voyage-db
+    plan: free
+    databaseName: voyage
+    user: voyage_user
+
+services:
+  - type: web
+    plan: free
+    name: voyage-app
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: voyage-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true

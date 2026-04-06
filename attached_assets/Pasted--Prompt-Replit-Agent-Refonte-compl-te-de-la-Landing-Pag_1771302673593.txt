@@ -1,0 +1,179 @@
+# Prompt Replit Agent — Refonte complète de la Landing Page Voyageo
+
+```
+REFONTE COMPLÈTE DE LA LANDING PAGE (client/src/pages/landing.tsx)
+
+La page d'accueil actuelle est trop basique : juste un hero + 3 cards. Pour un SaaS qui veut convertir des travel planners en clients payants, il faut une vraie landing page qui vend le produit.
+
+OBJECTIF : Transformer la landing en page de conversion SaaS professionnelle ciblant les travel planners indépendants et petites agences.
+
+=== STRUCTURE COMPLÈTE DE LA PAGE (7 sections) ===
+
+TOUTE LA PAGE doit utiliser le design system existant : font-display (Playfair Display) pour les titres, font-sans (Nunito) pour le body, les classes .glass, .gradient-text, .animate-in, et les couleurs CSS variables (primary, secondary, accent, etc.). Dark mode supporté via les classes .dark.
+
+--- SECTION 1 : NAVBAR (fixe) ---
+
+Navbar fixe avec classe "glass" (blur + transparence) :
+- Logo "Voyageo" (gradient-text, font-display, text-2xl)
+- Liens de navigation au centre (desktop only) : "Fonctionnalités" | "Comment ça marche" | "Tarifs" | "FAQ"
+  → Ces liens scrollent vers les sections correspondantes (smooth scroll avec id anchors)
+- Côté droit : Toggle dark/light mode (existant) + Bouton "Voir les tarifs" (variant outline, rounded-full) + Bouton "Connexion" (variant default, rounded-full)
+- Mobile : Les liens du centre sont cachés, burger menu optionnel ou juste les 2 boutons
+
+--- SECTION 2 : HERO (au-dessus du fold) ---
+
+Layout en 2 colonnes (lg:grid-cols-2) :
+
+Colonne gauche (texte) :
+- Badge en haut : petit badge arrondi "🚀 L'outil #1 des travel planners" (bg-primary/10 text-primary border border-primary/20 rounded-full px-4 py-1.5 text-sm font-medium)
+- Titre H1 (text-4xl md:text-6xl font-display) :
+  "Créez des voyages"
+  "sur-mesure" (en gradient-text)
+  "qui impressionnent vos clients"
+- Sous-titre (text-lg text-muted-foreground, max-w-lg) :
+  "Voyageo est la plateforme tout-en-un pour les travel planners. Itinéraires, budgets, check-lists et partage client en un seul outil élégant."
+- 2 boutons CTA :
+  * "Commencer gratuitement" → /api/login (variant default, size lg, rounded-full, shadow-xl shadow-primary/20, avec ArrowRight icon)
+  * "Voir les tarifs" → scroll vers #pricing ou lien vers /pricing (variant outline, size lg, rounded-full)
+- Micro-texte sous les boutons : "Gratuit · 1 voyage inclus · Sans carte bancaire" (text-xs text-muted-foreground)
+
+Colonne droite (visuel) :
+- Un mockup/screenshot du dashboard client (la vue que reçoit le client final)
+- Utiliser une div stylisée qui SIMULE un écran d'app avec :
+  * Un header fake avec des dots (rouge, jaune, vert) comme une fenêtre de navigateur
+  * À l'intérieur, un mini aperçu stylisé d'un voyage avec :
+    - Emoji 🌴 + "Aventure Thaïlandaise" en titre
+    - "Bangkok · 10 jours · 2 voyageurs" en sous-titre
+    - 3 mini cards inline : "Jour 1 - Bangkok" / "Jour 2 - Chiang Mai" / "Jour 3 - Krabi" avec des petits emojis
+    - Une mini barre de budget (progress bar colorée)
+  * Le tout dans un cadre avec rounded-2xl, shadow-2xl, border, bg-card
+  * Effet de rotation légère en 3D (transform: perspective(1000px) rotateY(-5deg) rotateX(2deg)) pour un effet premium
+  * Un petit badge flottant en bas à droite du mockup : "✨ Partagé en 1 clic" (glass-card, animate-float)
+
+--- SECTION 3 : LOGOS / SOCIAL PROOF RAPIDE ---
+
+Bande simple sous le hero :
+- Texte centré : "Déjà adopté par +50 travel planners en France" (text-sm text-muted-foreground)
+- En dessous, une rangée de 5 étoiles dorées ⭐ + "4.9/5 de satisfaction" 
+- (Optionnel : si tu veux ajouter des logos plus tard, préparer la structure avec une ligne de logos grisés)
+
+--- SECTION 4 : FONCTIONNALITÉS (id="features") ---
+
+Titre de section centré :
+- "Tout ce dont un travel planner a besoin" (font-display, text-3xl md:text-4xl)
+- Sous-titre : "Un outil complet pour créer, organiser et partager des voyages exceptionnels"
+
+Grille de 6 features (grid md:grid-cols-2 lg:grid-cols-3 gap-6) :
+
+Chaque card a :
+- Icône dans un cercle coloré (w-12 h-12 rounded-xl flex items-center justify-center)
+- Titre (font-display, text-lg font-bold)
+- Description (text-sm text-muted-foreground, 2 lignes max)
+- Hover effect : hover:border-primary/30 hover:shadow-md transition-all
+
+Les 6 features :
+1. 🗓️ (Calendar icon, bg-blue-500/10 text-blue-500) — "Planning jour par jour" — "Créez des itinéraires détaillés avec activités, horaires, lieux et conseils pour chaque journée."
+2. 💰 (Wallet icon, bg-emerald-500/10 text-emerald-500) — "Budget transparent" — "Répartissez le budget par catégorie et par jour. Vos clients voient exactement où va chaque euro."
+3. ✅ (CheckSquare icon, bg-violet-500/10 text-violet-500) — "Check-list intelligente" — "Passeport, vaccins, valise... Vos clients suivent leur préparation étape par étape."
+4. 🔗 (Share2 icon, bg-orange-500/10 text-orange-500) — "Partage en 1 clic" — "Un simple lien pour que vos clients accèdent à leur voyage. Pas de compte requis pour eux."
+5. 🤖 (Wand2 icon, bg-fuchsia-500/10 text-fuchsia-500) — "Génération IA" — "Décrivez le voyage, l'IA génère l'itinéraire complet. Modifiez ensuite à votre guise."
+6. 📄 (FileText icon, bg-cyan-500/10 text-cyan-500) — "Documents & guide PDF" — "Ajoutez les billets d'avion, confirmations d'hôtel et guides PDF. Tout centralisé."
+
+--- SECTION 5 : COMMENT ÇA MARCHE (id="how-it-works") ---
+
+Titre centré : "Créez un voyage en 3 étapes" + sous-titre "Simple, rapide et professionnel"
+
+3 étapes horizontales (grid md:grid-cols-3) avec des numéros et des lignes de connexion :
+
+Étape 1 :
+- Numéro "01" (text-5xl font-display gradient-text opacity-50)
+- Titre : "Créez le voyage"
+- Description : "Donnez un nom, ajoutez la destination. L'IA peut générer l'itinéraire pour vous."
+- Mini icône : PlusCircle
+
+Étape 2 :
+- Numéro "02"
+- Titre : "Personnalisez"
+- Description : "Ajoutez les activités, le budget, la check-list, les documents. Tout est modifiable."
+- Mini icône : Palette
+
+Étape 3 :
+- Numéro "03"
+- Titre : "Partagez"
+- Description : "Envoyez le lien à votre client. Il accède à son voyage complet sur son téléphone."
+- Mini icône : Send
+
+Entre chaque étape sur desktop : une ligne pointillée horizontale (border-dashed border-t-2 border-border/50) ou une flèche →.
+
+--- SECTION 6 : TÉMOIGNAGES ---
+
+Titre : "Ce que disent nos travel planners"
+
+3 cards de témoignages (grid md:grid-cols-3 gap-6) :
+
+Card design : bg-card, border, rounded-xl, p-6, avec guillemets décoratifs en haut (text-4xl text-primary/20 font-serif)
+
+Témoignage 1 :
+- "Voyageo a transformé ma façon de travailler. Mes clients sont bluffés par la présentation et je gagne un temps fou sur chaque dossier."
+- — Marie L., Travel planner indépendante (avec un avatar placeholder : div ronde avec initiales "ML" sur fond primary/10)
+
+Témoignage 2 :
+- "Avant je passais 3h par voyage à tout mettre en forme sur Canva. Maintenant c'est 30 minutes max et le résultat est 10x plus pro."
+- — Thomas D., Fondateur de Nomad Travel
+
+Témoignage 3 :
+- "Le partage par lien est génial. Mes clients peuvent consulter leur voyage à tout moment, même hors-ligne. Ils adorent."
+- — Sophie R., Agence Évasion Sur-Mesure
+
+--- SECTION 7 : CTA FINAL + FOOTER ---
+
+Section CTA (bg-gradient : du primary/5 au accent/5, ou un fond subtil) :
+- Titre : "Prêt à impressionner vos clients ?" (font-display, text-3xl)
+- Sous-titre : "Créez votre premier voyage gratuitement. Aucune carte bancaire requise."
+- Bouton : "Commencer maintenant" → /api/login (size lg, rounded-full, shadow-xl)
+- Sous le bouton : "Ou consultez nos tarifs →" (lien vers /pricing, text-sm underline)
+
+Footer (border-t border-border/30, py-8) :
+- Layout en 3-4 colonnes (md:grid-cols-4) :
+  * Colonne 1 : Logo Voyageo + tagline courte "L'outil des travel planners" + icônes réseaux sociaux (Instagram, LinkedIn)
+  * Colonne 2 "Produit" : Fonctionnalités, Tarifs, Changelog
+  * Colonne 3 "Ressources" : Blog, Centre d'aide, Contact
+  * Colonne 4 "Légal" : CGV, Politique de confidentialité, Mentions légales
+- En bas : "© 2025 Voyageo. Tous droits réservés." centré (text-xs text-muted-foreground)
+- Les liens du footer peuvent pointer vers "#" pour l'instant (placeholder)
+
+=== DÉTAILS TECHNIQUES D'IMPLÉMENTATION ===
+
+1. Smooth scroll pour les liens de la navbar vers les sections :
+```tsx
+const scrollToSection = (id: string) => {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+};
+```
+
+2. Animation au scroll (intersection observer) pour faire apparaître les sections en fondu :
+```tsx
+// Utiliser un hook ou data attribute pour animer les sections quand elles entrent dans le viewport
+// Ajouter la classe animate-in quand la section est visible
+```
+
+3. Le mockup dans le hero doit être pur CSS/HTML (pas une image), pour qu'il respecte le dark mode automatiquement.
+
+4. Responsive :
+- Mobile : 1 colonne partout, hero empilé (texte au-dessus, mockup en dessous), les étapes en colonne verticale
+- Tablet : 2 colonnes pour les features
+- Desktop : layout complet comme décrit
+
+5. Conserver l'import et le fonctionnement du toggle dark/light mode existant.
+
+6. TOUT dans un seul fichier : client/src/pages/landing.tsx (pas de composants séparés)
+
+=== CE QU'IL NE FAUT PAS FAIRE ===
+- Pas d'images externes (sauf le logo/avatar placeholders qui sont des div colorées)
+- Pas de vidéo ou d'iframe
+- Pas de formulaire d'inscription (juste des liens vers /api/login)
+- Pas d'animation lourde (juste les transitions CSS et animate-in)
+- Ne PAS casser le routing existant dans App.tsx
+
+FICHIER À MODIFIER : client/src/pages/landing.tsx (réécriture complète)
+```

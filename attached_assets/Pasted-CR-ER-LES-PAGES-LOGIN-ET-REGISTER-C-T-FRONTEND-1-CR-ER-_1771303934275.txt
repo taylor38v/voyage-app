@@ -1,0 +1,236 @@
+CRÉER LES PAGES LOGIN ET REGISTER CÔTÉ FRONTEND
+
+=== 1. CRÉER client/src/pages/login.tsx ===
+
+Page de connexion élégante et minimaliste :
+
+Layout centré (flex items-center justify-center min-h-screen) avec un fond bg-background.
+
+Card centrée (max-w-md w-full mx-4) :
+- Logo "Voyageo" en haut (gradient-text, font-display, text-2xl, centré)
+- Titre : "Connexion" (font-display, text-xl, centré)
+- Sous-titre : "Accédez à votre espace travel planner" (text-sm text-muted-foreground, centré)
+
+Formulaire :
+- Input "Email" (type email, required, placeholder "votre@email.com")
+- Input "Mot de passe" (type password, required, placeholder "••••••••")
+- Bouton "Se connecter" (w-full, variant default, avec Loader2 spinner si loading)
+- Message d'erreur en rouge si erreur (texte retourné par l'API)
+
+En dessous du formulaire :
+- "Pas encore de compte ?" + lien "Créer un compte gratuitement" → /register (text-primary underline)
+- Lien "Voir les tarifs" → /pricing (text-sm text-muted-foreground)
+
+Logique :
+```tsx
+const [email, setEmail] = useState("");
+const [password, setPassword] = useState("");
+const [error, setError] = useState("");
+const [loading, setLoading] = useState(false);
+const [, setLocation] = useLocation();
+const queryClient = useQueryClient();
+
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setError("");
+  setLoading(true);
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+      credentials: "include",
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message);
+    // Rafraîchir l'utilisateur dans le cache React Query
+    await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    setLocation("/admin");
+  } catch (err: any) {
+    setError(err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+=== 2. CRÉER client/src/pages/register.tsx ===
+
+Page d'inscription en 2 variantes :
+- /register → inscription gratuite (plan free)
+- /register?plan=solo ou /register?plan=pro ou /register?plan=agency → inscription avec plan pré-sélectionné
+
+Layout similaire à login (centré, card max-w-md).
+
+Card :
+- Logo "Voyageo" + titre "Créer votre compte"
+- Si un plan est pré-sélectionné (query param), afficher un badge en haut : "Plan Solo — 19€/mois" (avec les couleurs du plan)
+
+Formulaire :
+- Input "Prénom" (optionnel, placeholder "Jean")
+- Input "Nom" (optionnel, placeholder "Dupont")
+- Input "Email" (required, type email, placeholder "votre@email.com")
+- Input "Mot de passe" (required, type password, placeholder "Minimum 8 caractères")
+- Input "Confirmer le mot de passe" (required, type password)
+- Checkbox : "J'accepte les conditions d'utilisation" (avec lien vers #)
+- Bouton CTA qui change selon le plan :
+  * Si pas de plan ou plan=free : "Créer mon compte gratuit" (variant default)
+  * Si plan payant : "Créer mon compte et payer" (variant default, bg gradient)
+- Message d'erreur en rouge
+
+En dessous :
+- "Déjà un compte ?" + lien "Se connecter" → /login
+
+Logique :
+```tsx
+const [searchParams] = useSearchParams(); // ou parse window.location.search
+const selectedPlan = new URLSearchParams(window.location.search).get("plan") || "free";
+
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (password !== confirmPassword) {
+    setError("Les mots de passe ne correspondent pas");
+    return;
+  }
+  setLoading(true);
+  setError("");
+  try {
+    // 1. Créer le compte
+    const res = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, firstName, lastName, plan: selectedPlan }),
+      credentials: "include",
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message);
+    
+    // 2. Rafraîchir l'auth
+    await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    
+    // 3. Si plan payant, rediriger vers Stripe Checkout
+    if (selectedPlan !== "free") {
+      const interval = new URLSearchParams(window.location.search).get("interval") || "monthly";
+      const priceKey = `VITE_STRIPE_PRICE_${selectedPlan.toUpperCase()}_${interval.toUpperCase()}`;
+      const priceId = (import.meta.env as any)[priceKey];
+      
+      if (priceId) {
+        const checkoutRes = await fetch("/api/stripe/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ priceId }),
+          credentials: "include",
+        });
+        const checkoutData = await checkoutRes.json();
+        if (checkoutData.url) {
+          window.location.href = checkoutData.url; // Redirige vers Stripe
+          return;
+        }
+      }
+    }
+    
+    // 4. Si plan gratuit, aller directement à l'admin
+    setLocation("/admin");
+  } catch (err: any) {
+    setError(err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+=== 3. MODIFIER client/src/hooks/use-auth.ts ===
+
+Changer la fonction logout pour utiliser POST au lieu de la redirection GET :
+```ts
+async function logout(): Promise<void> {
+  await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+  window.location.href = "/";
+}
+```
+
+=== 4. MODIFIER client/src/App.tsx ===
+
+Ajouter les nouvelles routes :
+```tsx
+import Login from "@/pages/login";
+import Register from "@/pages/register";
+
+// Dans le Router, AVANT le check user :
+// Ces routes sont accessibles sans authentification
+<Route path="/login" component={Login} />
+<Route path="/register" component={Register} />
+<Route path="/share/:token" component={ClientView} />
+
+// Si pas connecté :
+{!user ? (
+  <Switch>
+    <Route path="/" component={Landing} />
+    <Route path="/login" component={Login} />
+    <Route path="/register" component={Register} />
+    <Route path="/pricing" component={Pricing} /> // si la page pricing existe
+    <Route component={Landing} />
+  </Switch>
+) : (
+  <Switch>
+    <Route path="/" component={Dashboard} />
+    <Route path="/trip/:id" component={TripDetails} />
+    <Route path="/admin" component={AdminPage} />
+    <Route path="/pricing" component={Pricing} />
+    <Route component={NotFound} />
+  </Switch>
+)}
+```
+
+=== 5. MODIFIER LA LANDING PAGE ===
+
+Dans client/src/pages/landing.tsx, remplacer les liens d'authentification :
+- Le bouton "Connexion" dans la navbar : onClick={() => window.location.href = "/login"} au lieu de /api/login
+- Le bouton CTA "Commencer gratuitement" : onClick={() => window.location.href = "/register"} au lieu de /api/login
+- Ajouter un bouton "S'inscrire" dans la navbar (à côté de Connexion)
+
+=== 6. MODIFIER LA PAGE PRICING (si elle existe) ===
+
+Les boutons CTA des plans doivent maintenant :
+- Si l'utilisateur N'EST PAS connecté : rediriger vers /register?plan=solo&interval=monthly (ou yearly)
+- Si l'utilisateur EST connecté : appeler /api/stripe/checkout directement
+
+=== 7. MODIFIER LE LAYOUT ===
+
+Dans client/src/components/layout.tsx :
+- Le bouton "Déconnexion" appelle la nouvelle fonction logout (POST /api/auth/logout) — c'est déjà géré par le hook useAuth modifié
+
+=== 8. BANNIÈRE BIENVENUE NOUVEAUX ADMINS ===
+
+Dans client/src/pages/admin.tsx, ajouter une détection premier utilisateur :
+Si trips est vide (length === 0), afficher :
+```tsx
+<div className="bg-gradient-to-r from-primary/5 to-accent/5 border border-primary/20 rounded-xl p-8 text-center space-y-4">
+  <div className="text-4xl">🌴</div>
+  <h2 className="text-2xl font-display font-bold">Bienvenue sur Voyageo !</h2>
+  <p className="text-muted-foreground max-w-md mx-auto">
+    Créez votre premier voyage et envoyez-le à votre client. 
+    {user.plan === "free" && " Votre plan gratuit inclut 1 voyage actif."}
+  </p>
+  <div className="flex gap-3 justify-center flex-wrap">
+    <Button onClick={() => setShowCreateDialog(true)}>
+      <Plus className="w-4 h-4 mr-1" /> Créer mon premier voyage
+    </Button>
+    {user.plan === "free" && (
+      <Button variant="outline" onClick={() => window.location.href = "/pricing"}>
+        Voir les plans
+      </Button>
+    )}
+  </div>
+</div>
+```
+
+FICHIERS À CRÉER/MODIFIER :
+- client/src/pages/login.tsx (NOUVEAU)
+- client/src/pages/register.tsx (NOUVEAU)
+- client/src/hooks/use-auth.ts (modifier logout)
+- client/src/App.tsx (ajouter routes /login et /register)
+- client/src/pages/landing.tsx (changer liens auth)
+- client/src/components/layout.tsx (vérifier logout)
+- client/src/pages/admin.tsx (bannière bienvenue)
+- client/src/pages/pricing.tsx (si existe : liens vers /register?plan=xxx)

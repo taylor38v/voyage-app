@@ -1,0 +1,30 @@
+La navigation en haut
+D'abord les pills de filtre par ville en horizontal scrollable : "Tout", "Bangkok", "Ayutthaya", "Chiang Mai", etc. Quand le client clique sur une ville, seuls les jours dans cette ville s'affichent dans le sélecteur en dessous. Ça résout le problème du voyage de 3 semaines avec 8 villes — le client retrouve ses jours instantanément.
+En dessous, les pills de jours : des petits carrés avec l'emoji de la ville et "J1", "J2"... Le jour actif est coloré avec un gradient. C'est un raccourci visuel immédiat.
+Le header du jour
+La photo de la ville en fond (via Unsplash ou photo custom uploadée par le planner) avec un gradient noir en bas pour la lisibilité. Par-dessus : "Jour 1 — Bangkok", la date, le nombre d'activités. Et à droite, le widget météo réel de cette ville ce jour-là (température, icône, condition, vent). Le tout dans un bloc arrondi qui fait "carte postale".
+Le swipe entre les jours
+L'indication "← swipe pour changer de jour →" en texte discret, avec un vrai support tactile. Le client swipe à gauche → jour suivant, à droite → jour précédent. Sur desktop, des flèches cliquables aux extrémités. C'est crucial pour le mobile — le client utilise l'app pendant le voyage, il veut passer d'un jour à l'autre d'un geste.
+La timeline d'activités
+Une ligne verticale colorée (couleur du jour) à gauche, avec un point par activité. C'est plus qu'une liste — c'est une frise chronologique visuelle. Le client voit d'un coup d'œil si sa journée est chargée ou tranquille, et les créneaux libres.
+Chaque activité est une card avec :
+
+L'icône du type dans un carré arrondi coloré (monument, resto, transport, plage, etc.)
+L'heure en couleur du jour
+Le coût par personne
+Le titre de l'activité
+Un chevron pour expand/collapse
+
+L'expand d'une activité (ce que ta version Replit ne fait pas)
+Quand le client tape sur une activité, la card s'ouvre et montre :
+
+La note/conseil du planner dans une mini-card colorée avec un icône ✨. C'est le contenu qui fait la valeur — "Arrivez avant 15h pour éviter la foule, enlevez les chaussures"
+La durée estimée
+Le coût par personne
+Un bouton "📍 Google Maps" qui ouvre les coordonnées GPS directement dans Maps (deep link natif — ça ouvre l'app Maps sur mobile)
+Un bouton "🔗 Réserver" si le planner a ajouté un lien (Booking, AirAsia, Cookly, etc.)
+
+Les bons plans perso 🔥 (le différenciateur)
+Les activités marquées is_personal: true ont un traitement visuel différent : fond légèrement rouge/orangé, icône 🔥 au lieu de l'icône standard, badge "BON PLAN PERSO" rouge. La note du planner est dans une card rouge au lieu d'ambrée, avec un ton plus personnel — "MON SPOT ! Prends le pad thai enveloppé dans l'omelette, dis 'mai pet' si tu veux pas épicé." C'est ça qui transforme un itinéraire Google en recommandation d'un ami.
+Les tips du jour
+En bas de la timeline, une card verte avec l'icône ⚡ "Tips du jour". Une liste de conseils pratiques pour cette journée : "Le BTS Skytrain est le moyen le plus rapide", "Négociez TOUJOURS les tuk-tuks AVANT de monter". Chaque tip a une bordure gauche verte. Ces tips sont écrits par le planner et sont liés au jour, pas à une activité spécifique.

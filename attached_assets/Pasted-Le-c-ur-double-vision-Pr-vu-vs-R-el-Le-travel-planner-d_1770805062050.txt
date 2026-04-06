@@ -1,0 +1,16 @@
+Le cœur : double vision Prévu vs Réel
+Le travel planner définit un budget prévisionnel par jour et par catégorie quand il crée l'itinéraire. Le client, lui, saisit ses dépenses réelles pendant le voyage. L'intérêt de toute la section, c'est la confrontation entre les deux. En haut, une grosse card affiche trois chiffres côte à côte : le budget total, le total prévu (somme des budgets jour par jour que le planner a estimés), et le total dépensé (somme des saisies du client). Le chiffre principal en gros au centre, c'est le budget restant = total - dépensé. Vert si tout va bien, rouge si dépassement.
+Le graphique courbe cumulée
+Un area chart avec deux courbes superposées. La courbe pointillée orange montre le budget prévu cumulé jour après jour (jour 1 = 80€, jour 2 = 160€, etc.). La courbe pleine verte montre les dépenses réelles cumulées. D'un coup d'œil le client voit s'il est au-dessus ou en dessous de ses prévisions, et à quel moment ça a dérapé. C'est le widget le plus "wow" de la section.
+La répartition par catégorie
+Chaque catégorie (Hébergement, Nourriture, Transport, Activités, Autre) a sa barre de progression avec deux informations : le montant prévu par le planner et le montant réellement dépensé. Si le client a dépensé 45€ en nourriture sur 60€ prévus, la barre est à 75% en vert. Si c'est 80€ sur 60€, la barre déborde visuellement en rouge. Ça permet d'identifier immédiatement quelle catégorie dérape.
+Le bouton "+ Dépense" et sa modal
+Un bouton flottant ou en haut de la section. Le client clique, une modal bottom-sheet apparaît avec : un sélecteur de catégorie en pills (Hébergement, Nourriture, Transport, Activités, Autre), un champ montant, un champ note optionnel ("Pad Thai chez Thip Samai"), et le jour est automatiquement pré-rempli sur le jour en cours du voyage. Un tap et c'est enregistré. L'idée c'est que saisir une dépense prenne moins de 5 secondes — sinon le client ne le fera jamais.
+L'historique des dépenses
+Sous le graphique, la liste des dépenses récentes en ordre antéchronologique. Chaque ligne montre l'emoji de la catégorie, la note, le jour, et le montant en rouge. Le client peut supprimer une dépense d'un swipe ou d'un tap sur un bouton. Optionnellement, un filtre par catégorie ou par jour.
+Le budget jour par jour
+Un mini bar chart horizontal où chaque barre = un jour, avec la couleur du jour. La hauteur montre le budget prévu, et un overlay montre le dépensé. Le client peut tapper sur un jour pour voir le détail de ce qu'il a dépensé ce jour-là. Ça donne une vision "calendrier budgétaire" très lisible.
+La moyenne par jour
+Un petit indicateur en bas qui montre : moyenne dépensée par jour jusqu'ici, versus la moyenne prévue. Si le client a dépensé 120€ en 3 jours (40€/jour) alors que le prévu était 50€/jour, il voit tout de suite le gap. Et une projection : "À ce rythme, tu auras dépensé 480€ au jour 12 sur 600€ prévus" — ça rassure ou ça alerte.
+Les alertes intelligentes
+Des cards d'alerte qui apparaissent conditionnellement. "⚠️ Tu as dépassé le budget nourriture de 23€" en rouge. "✅ Tu es 15% en dessous du budget transport" en vert. "💡 À ce rythme, il te restera ~180€ pour les 4 derniers jours" en bleu. C'est ce genre de micro-intelligence qui transforme un tableau de chiffres en vrai assistant budgétaire.

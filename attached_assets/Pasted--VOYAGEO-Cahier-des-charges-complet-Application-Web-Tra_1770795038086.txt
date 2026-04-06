@@ -1,0 +1,822 @@
+# 🌴 VOYAGEO — Cahier des charges complet
+## Application Web Travel Planner sur mesure
+
+---
+
+## 1. VISION PRODUIT
+
+### Concept
+Voyageo est une web app destinée aux **travel planners indépendants** qui créent des itinéraires sur mesure pour leurs clients. L'app sert à la fois de :
+- **Outil de création** pour le travel planner (admin) avec assistance IA
+- **Expérience client** premium — le client reçoit un lien vers son voyage personnalisé, consultable comme une app mobile
+
+### Proposition de valeur
+- Le travel planner crée des voyages enrichis de ses **bons plans personnels** 🔥 (spots secrets, avis perso, tips d'initié)
+- Le client a une app interactive dans sa poche : itinéraire, carte, budget, checklist, météo, liens de réservation
+- L'IA (Claude API) accélère la création d'itinéraires que le planner personnalise ensuite
+
+### Utilisateurs
+| Rôle | Description | Accès |
+|------|-------------|-------|
+| **Admin (Travel Planner)** | Crée, édite, publie des voyages | Dashboard admin, éditeur IA, gestion clients |
+| **Client** | Consulte son voyage, suit son budget, coche sa checklist | Vue voyage read-only + saisie dépenses |
+
+---
+
+## 2. STACK TECHNIQUE
+
+### Frontend
+- **Framework** : Next.js 14+ (App Router)
+- **Styling** : Tailwind CSS
+- **Cartes** : Leaflet.js avec tiles CartoDB dark
+- **Graphiques** : Recharts
+- **Icônes** : Lucide React
+- **Fonts** : Nunito (body) + Playfair Display (titres)
+
+### Backend & BDD
+- **Auth** : Supabase Auth (email/password + magic links)
+- **Base de données** : Supabase PostgreSQL
+- **Storage** : Supabase Storage (photos custom uploadées par l'admin)
+- **API IA** : Anthropic Claude API (claude-sonnet-4-20250514)
+
+### APIs externes
+- **Météo** : OpenWeatherMap API (gratuit, 1000 appels/jour)
+- **Images par défaut** : Unsplash API (photos de villes/destinations)
+- **Cartes** : OpenStreetMap via Leaflet (gratuit)
+
+### Hébergement
+- **Replit** pour le développement et MVP
+- Migration ultérieure possible vers Vercel (frontend) + Supabase cloud
+
+---
+
+## 3. ARCHITECTURE BASE DE DONNÉES
+
+### Table `profiles`
+```
+id              UUID (FK auth.users)
+email           TEXT
+name            TEXT
+role            ENUM ('admin', 'client')
+avatar_url      TEXT (nullable)
+created_at      TIMESTAMP
+```
+
+### Table `trips`
+```
+id              UUID (PK)
+created_by      UUID (FK profiles — l'admin qui l'a créé)
+client_id       UUID (FK profiles — le client assigné, nullable)
+title           TEXT ("Thaïlande Explorer")
+subtitle        TEXT ("12 jours d'aventure tropicale")
+destination     TEXT ("Thaïlande")
+cover_emoji     TEXT ("🌴")
+cover_image_url TEXT (nullable — photo custom ou Unsplash)
+departure_date  DATE
+return_date     DATE
+total_budget    INTEGER (en euros)
+currency        TEXT (défaut "€")
+travelers       INTEGER
+status          ENUM ('draft', 'active', 'archived')
+share_token     TEXT UNIQUE (token pour lien de partage public)
+created_at      TIMESTAMP
+updated_at      TIMESTAMP
+```
+
+### Table `trip_days`
+```
+id              UUID (PK)
+trip_id         UUID (FK trips)
+day_number      INTEGER
+date_label      TEXT ("15 Mars")
+city            TEXT ("Bangkok")
+color           TEXT ("#FF6348" — couleur du jour dans l'UI)
+sort_order      INTEGER
+created_at      TIMESTAMP
+```
+
+### Table `activities`
+```
+id              UUID (PK)
+day_id          UUID (FK trip_days)
+time            TEXT ("10:00")
+title           TEXT ("Wat Pho — Bouddha couché")
+icon            TEXT ("landmark")
+duration        TEXT ("2h")
+cost            DECIMAL (en euros, par personne)
+type            ENUM ('activity','food','hotel','transport','shopping','nightlife')
+note            TEXT (description/conseil)
+is_personal     BOOLEAN (true = bon plan 🔥 du travel planner)
+latitude        DECIMAL (nullable)
+longitude       DECIMAL (nullable)
+booking_url     TEXT (nullable — lien Booking, Airbnb, etc.)
+sort_order      INTEGER
+created_at      TIMESTAMP
+```
+
+### Table `day_tips`
+```
+id              UUID (PK)
+day_id          UUID (FK trip_days)
+content         TEXT ("Le BTS Skytrain est le plus rapide")
+sort_order      INTEGER
+```
+
+### Table `day_budgets`
+```
+id              UUID (PK)
+day_id          UUID (FK trip_days)
+hotel           DECIMAL
+food            DECIMAL
+transport       DECIMAL
+activities      DECIMAL
+other           DECIMAL
+```
+
+### Table `expenses` (dépenses réelles du client)
+```
+id              UUID (PK)
+trip_id         UUID (FK trips)
+user_id         UUID (FK profiles — le client)
+day_number      INTEGER
+category        ENUM ('hotel','food','transport','activities','other')
+amount          DECIMAL
+note            TEXT (nullable)
+created_at      TIMESTAMP
+```
+
+### Table `checklist_items`
+```
+id              UUID (PK)
+trip_id         UUID (FK trips)
+category        TEXT ("📄 Documents")
+text            TEXT ("Passeport valide 6 mois")
+is_critical     BOOLEAN
+sort_order      INTEGER
+```
+
+### Table `checklist_checks` (état coché par le client)
+```
+id              UUID (PK)
+checklist_item_id UUID (FK checklist_items)
+user_id         UUID (FK profiles)
+checked         BOOLEAN
+checked_at      TIMESTAMP
+```
+
+### Row Level Security (Supabase RLS)
+```
+— Les admins voient tous les trips qu'ils ont créés
+— Les clients voient uniquement les trips qui leur sont assignés
+— Les dépenses et checks sont privés par user_id
+— Le share_token permet un accès read-only sans auth
+```
+
+---
+
+## 4. SCREENS & FONCTIONNALITÉS DÉTAILLÉES
+
+---
+
+### 4.1 — ÉCRAN LOGIN / SIGNUP
+
+**Route** : `/`
+
+**Fonctionnalités** :
+- Login email + mot de passe via Supabase Auth
+- Option "Magic Link" (connexion sans mot de passe par email)
+- Signup avec sélection du rôle (client ou admin)
+- Branding Voyageo (logo, couleurs, tagline)
+- Redirection automatique vers le bon dashboard selon le rôle
+
+**Design** :
+- Plein écran, fond dark gradient
+- Card centrée avec le formulaire
+- Animation fade-in au chargement
+
+---
+
+### 4.2 — DASHBOARD ADMIN
+
+**Route** : `/admin`
+
+**Header** :
+- "Admin Panel" + nom du planner
+- Bouton logout
+
+**Stats rapides (cards)** :
+- Nombre total de voyages
+- Voyages actifs en cours
+- Nombre de clients
+- Revenu estimé (nombre de voyages × prix prestation)
+
+**Actions principales** :
+- **Créer un voyage** → ouvre le formulaire de création
+- **Gérer les voyages** → liste de tous les trips
+- **Gérer les clients** → liste des clients avec leurs voyages assignés
+
+**Liste des voyages récents** :
+- Card par voyage avec : emoji cover, titre, destination, dates, statut (badge coloré), nombre de jours, budget
+- Actions : Éditer / Preview client / Archiver
+
+---
+
+### 4.3 — CRÉATION D'UN VOYAGE (Admin)
+
+**Route** : `/admin/trips/new`
+
+**Formulaire** :
+- Choix de l'emoji cover (grille de 12+ emojis)
+- Upload photo de couverture (optionnel, sinon Unsplash auto)
+- Nom du voyage
+- Destination
+- Date de départ + date de retour
+- Nombre de jours (auto-calculé depuis les dates)
+- Budget total (€)
+- Nombre de voyageurs
+- Email du client (pour l'assigner — crée le compte client si inexistant)
+
+**Après création** → redirige vers l'éditeur IA
+
+---
+
+### 4.4 — ÉDITEUR DE VOYAGE (Admin) ⭐ Screen principal
+
+**Route** : `/admin/trips/[id]/edit`
+
+**2 onglets** :
+
+#### Onglet 🤖 Assistant IA
+- Interface chat avec Claude API
+- Prompts suggérés en pills cliquables :
+  - "Génère X jours pour [destination] avec budget détaillé"
+  - "Ajoute 2 jours plage et farniente"
+  - "Ajoute 1 jour temples et culture"
+  - "Ajoute 1 jour street food et marchés"
+  - "Réorganise le jour 3 pour optimiser les déplacements"
+  - "Propose des alternatives moins chères pour le jour 5"
+- L'IA génère des jours complets en JSON (activités, coordonnées GPS, budget, tips)
+- Les jours générés sont ajoutés au voyage et sauvegardés en BDD
+- Message de confirmation avec compteur de jours créés
+
+**Prompt système pour l'IA** :
+```
+Tu es un expert voyage qui crée des itinéraires détaillés.
+Voyage : "[titre]" - [destination] - Budget : [budget]€ - [nb_jours] jours.
+[X] jours existent déjà.
+
+RÉPONDS UNIQUEMENT en JSON valide sans markdown :
+{
+  "days": [{
+    "day": 1,
+    "date": "Jour 1",
+    "city": "Ville",
+    "activities": [{
+      "time": "10:00",
+      "title": "Nom du lieu",
+      "icon": "camera|food|hotel|transport|plane|shopping|landmark|beach|nature|nightlife",
+      "duration": "2h",
+      "cost": 5,
+      "type": "activity|food|hotel|transport|shopping|nightlife",
+      "note": "Description pratique détaillée",
+      "isPersonal": false,
+      "lat": 13.7465,
+      "lng": 100.4930,
+      "bookingUrl": "https://..." (optionnel)
+    }],
+    "tips": ["Conseil pratique"],
+    "budgetDay": {"hotel": 30, "food": 20, "transport": 10, "activities": 15, "other": 5}
+  }],
+  "message": "Résumé de ce qui a été généré"
+}
+
+Inclus les coordonnées GPS réelles de chaque lieu.
+Inclus des liens de réservation quand pertinent.
+Varie les types d'activités dans chaque journée.
+Budget par jour doit être cohérent avec le budget total.
+```
+
+#### Onglet 📅 Jours (édition manuelle)
+- Liste de tous les jours avec :
+  - Emoji ville, nom ville, nombre d'activités, nombre de 🔥
+  - Clic → ouvre le détail du jour
+- Bouton "+ Ajouter un jour" (dashed)
+
+**Détail d'un jour (vue édition)** :
+- Champs éditables : ville, date
+- Liste des activités avec pour chacune :
+  - Icône + heure + titre + badge "BON PLAN PERSO" si personal
+  - Boutons Éditer / Supprimer
+- Bouton "+ Activité" (standard)
+- Bouton "+ Bon plan 🔥" (personal = true par défaut)
+- Bouton "Supprimer ce jour"
+
+**Modal d'édition d'activité** :
+- Toggle "Mon bon plan perso 🔥" / "Activité standard 📌"
+- Sélecteur de type (icônes) : Visite, Resto, Hôtel, Transport, Vol, Shopping, Monument, Plage, Nature, Nightlife
+- Champs : Titre, Heure, Durée, Coût (€), Latitude, Longitude
+- Textarea : Note/conseil (ou "Ton avis perso" si personal)
+- Champ optionnel : URL de réservation
+- Bouton Sauvegarder
+
+**Bouton "Preview client"** → ouvre la vue client dans un nouvel onglet
+
+---
+
+### 4.5 — VUE CLIENT (l'expérience voyage) ⭐⭐ Screen le plus important
+
+**Route** : `/trip/[share_token]` (accessible sans login via token)
+**Route authentifiée** : `/client/trips/[id]`
+
+**Design** : Mobile-first (max-width 520px centré), dark mode, UI premium
+
+**Bottom navigation** : 5 onglets
+- 🏠 Accueil
+- 🗺️ Carte
+- 📅 Jours
+- 💰 Budget
+- ✅ Check
+
+---
+
+#### Onglet 🏠 Accueil
+
+**Hero** :
+- Photo de couverture plein écran (avec gradient overlay)
+- Titre du voyage (font Playfair Display)
+- Sous-titre
+- Compteur J-X avant le départ (ou "🛫 En voyage !" si date passée)
+- Widget météo de la première ville
+
+**Stats rapides** (grille 4 colonnes) :
+- 📅 Nombre de jours
+- 🏙️ Nombre de villes
+- 🔥 Nombre de bons plans perso
+- 💰 Budget total
+
+**Programme** :
+- Liste scrollable de tous les jours
+- Chaque day card = thumbnail ville + "Jour X — Ville" + date + nb activités + 🔥 si bons plans
+- Clic → onglet Jours sur ce jour
+
+---
+
+#### Onglet 🗺️ Carte
+
+**Carte Leaflet interactive** (plein écran dans le conteneur) :
+- Tiles CartoDB dark (cohérent avec le thème)
+- Markers par ville avec emoji dans un cercle coloré
+- Polyline pointillée entre les villes (ordre chronologique)
+- Clic sur un marker → popup avec nom + jours → clic navigue vers l'onglet Jours
+- Zoom controls en bas à droite
+- Fit bounds automatique sur toutes les villes
+
+**Sous la carte** :
+- Chips cliquables par ville (emoji + nom)
+- Clic → navigue vers l'onglet Jours filtré sur cette ville
+
+---
+
+#### Onglet 📅 Jours (l'itinéraire)
+
+**Filtre par ville** :
+- Pills horizontales scrollables : "Tout" + une pill par ville
+- Filtre les jours affichés
+
+**Sélecteur de jour** :
+- Pills horizontales scrollables avec emoji + "J1", "J2"...
+- Le jour actif est coloré avec un gradient
+
+**Header du jour** :
+- Photo de la ville en background (avec gradient)
+- "Jour X — Ville"
+- Date + nombre d'activités
+- Widget météo (données réelles via API)
+
+**Indication swipe** : "← swipe pour changer de jour →"
+- Support tactile réel (touch events avec seuil 60px)
+
+**Timeline des activités** :
+- Ligne verticale colorée à gauche
+- Point sur la timeline pour chaque activité
+- **Activité standard** :
+  - Icône dans un carré arrondi (couleur du jour)
+  - Heure + coût + titre
+  - Clic → expand avec :
+    - Note/conseil dans une card ambrée avec icône ✨
+    - Durée + coût/personne
+    - Bouton "📍 Google Maps" (deep link avec coordonnées)
+    - Bouton "🔗 Réserver" (si bookingUrl existe)
+- **Bon plan perso 🔥** :
+  - Icône 🔥 dans un carré arrondi (rouge/orange)
+  - Badge "BON PLAN" rouge
+  - Background légèrement rouge/orange
+  - Note du planner dans une card rouge avec icône 🔥
+  - Même boutons Maps et Réserver
+
+**Tips du jour** :
+- Card verte en bas
+- Icône ⚡ + "Tips du jour"
+- Liste des tips avec bordure gauche verte
+
+**Navigation jour précédent / suivant** en swipe
+
+---
+
+#### Onglet 💰 Budget
+
+**Card principale** :
+- Montant restant en gros (vert si OK, rouge si dépassé)
+- "Budget restant (réel)"
+- Grille 3 colonnes : Total / Prévu / Dépensé
+- Bouton "+ Dépense" (vert)
+
+**Graphique Prévu vs Réel** :
+- AreaChart avec 2 courbes :
+  - Ligne pointillée orange = budget prévu cumulé
+  - Ligne pleine verte = dépenses réelles cumulées
+- Légende sous le graphique
+
+**Répartition par catégorie** :
+- Barres de progression par catégorie (Hébergement, Nourriture, Transport, Activités, Divers)
+- Montant + pourcentage
+
+**Dépenses récentes** :
+- Liste des dernières dépenses saisies
+- Emoji catégorie + note + montant en rouge
+- Jour associé
+
+**Modal "Ajouter une dépense"** :
+- Sélecteur catégorie (pills)
+- Montant (€)
+- Note (optionnel)
+- Bouton "Ajouter"
+- La dépense est sauvegardée en BDD et liée au jour sélectionné
+
+---
+
+#### Onglet ✅ Checklist
+
+**Barre de progression** :
+- "X/Y complétés"
+- Pourcentage en gros
+- Barre de progression (gradient orange → vert)
+- Message "🎉 Prêt pour le départ !" quand 100%
+
+**Catégories** (créées par l'admin, avec items par défaut) :
+- 📄 Documents
+- 💊 Santé
+- 📱 Tech & Apps
+- 👕 Vêtements
+- 💰 Argent
+
+**Chaque item** :
+- Checkbox arrondie (vert quand coché)
+- Texte (barré quand coché)
+- Badge "!" rouge si critique et non coché
+- Clic → toggle le check (sauvegardé en BDD)
+
+**L'admin peut personnaliser** les items de checklist dans l'éditeur de voyage.
+
+---
+
+### 4.6 — DASHBOARD CLIENT
+
+**Route** : `/client`
+
+**Header** : "Bonjour [Prénom]" + bouton logout
+
+**Liste des voyages assignés** :
+- Card par voyage avec :
+  - Photo de couverture
+  - Badge statut (En cours / À venir / Brouillon)
+  - Compteur J-X
+  - Titre + sous-titre + dates + villes + budget
+  - Bouton "Voir l'itinéraire"
+
+---
+
+### 4.7 — PAGE DE PARTAGE PUBLIC
+
+**Route** : `/trip/[share_token]`
+
+- Même vue que la vue client mais en **lecture seule**
+- Pas de saisie de dépenses
+- Pas de checklist
+- Le lien est généré automatiquement à la création du voyage
+- Le travel planner peut copier ce lien et l'envoyer par email/WhatsApp
+- Fonctionne sans inscription ni login
+
+---
+
+## 5. FEATURES TRANSVERSALES
+
+### 5.1 — Météo en temps réel
+- API OpenWeatherMap appelée par ville et par date
+- Affichée dans le header de chaque jour et sur l'accueil
+- Données : température, condition, icône, vent
+- Cache des résultats (1 appel par ville par jour max)
+
+### 5.2 — Liens Google Maps
+- Chaque activité avec coordonnées a un bouton "Google Maps"
+- Format : `https://www.google.com/maps/search/?api=1&query={lat},{lng}`
+- Ouvre l'app Google Maps sur mobile
+
+### 5.3 — Liens de réservation
+- Champ optionnel `booking_url` sur chaque activité
+- Bouton "Réserver" affiché si l'URL existe
+- Ouvre dans un nouvel onglet
+
+### 5.4 — Système de notifications (in-app)
+- Toast notification en haut de l'écran
+- Slide-down animation
+- Types : success (vert), error (rouge)
+- Auto-dismiss après 3 secondes
+- Utilisé pour : sauvegarde, ajout dépense, génération IA, copie lien
+
+### 5.5 — Export PDF
+- Bouton "📥 Télécharger PDF" dans la vue client
+- Génère un PDF propre avec :
+  - Page de couverture (titre, dates, destination)
+  - 1 page par jour (activités, horaires, notes, tips)
+  - Page budget récapitulatif
+  - Checklist
+- Librairie : `@react-pdf/renderer` ou `jsPDF` + `html2canvas`
+
+### 5.6 — Partage
+- Bouton "🔗 Partager" dans la vue client
+- Copie le lien `[domain]/trip/[share_token]` dans le presse-papier
+- Option : partage natif mobile (Web Share API si disponible)
+
+### 5.7 — PWA (Progressive Web App)
+- Manifest.json avec icône Voyageo
+- Service Worker pour le cache offline basique
+- "Add to Home Screen" sur mobile
+- Le client peut installer l'app sur son téléphone
+
+---
+
+## 6. DESIGN SYSTEM
+
+### Couleurs
+```
+BRAND
+  dark:       #0B1929 (fond principal)
+  darkCard:   #112240 (fond des cards)
+  darkBorder: rgba(255,255,255,0.07)
+  accent1:    #FF6348 (rouge/orange — action, bons plans 🔥)
+  accent2:    #FFA502 (orange — accent secondaire, IA, sélection)
+  accent3:    #1DD1A1 (vert — succès, budget OK, checklist)
+
+CATÉGORIES BUDGET
+  hotel:      #8854D0 (violet)
+  food:       #FF6348 (rouge)
+  transport:  #48DBFB (bleu clair)
+  activities: #FFA502 (orange)
+  other:      #636E72 (gris)
+```
+
+### Typographie
+```
+Titres principaux : Playfair Display, 900, serif
+Body / UI :        Nunito, 400-900, sans-serif
+Monospace (code) : System mono
+```
+
+### Composants réutilisables
+```
+<Card>       — Fond darkCard, border darkBorder, rounded-2xl
+<Btn>        — Variantes : primary (gradient), secondary (outlined), ghost, success (vert), ai (violet)
+<Input>      — Label uppercase, icône à gauche, fond semi-transparent
+<Badge>      — Statut coloré (active=vert, upcoming=bleu, draft=orange)
+<Countdown>  — Compteur J-X avec fond orange
+<WeatherWidget> — Icône météo + température + condition
+<LeafletMap> — Carte dark avec markers emoji
+```
+
+### Animations
+```
+fadeIn:     opacity 0→1 + translateY 12px→0
+slideDown:  notification toast
+spin:       loader
+pulse:      loading states
+```
+
+### Responsive
+- **Mobile** (< 520px) : vue principale, navigation bottom
+- **Tablet** (520-1024px) : sidebar optionnelle
+- **Desktop** (> 1024px) : layout 2 colonnes pour l'admin (sidebar + contenu)
+
+---
+
+## 7. SÉCURITÉ
+
+### Authentification
+- Supabase Auth avec email/password
+- Magic link optionnel
+- JWT tokens gérés automatiquement par Supabase
+- Refresh tokens pour sessions persistantes
+
+### Autorisation (RLS)
+- Admin : CRUD sur ses propres trips, activités, jours
+- Client : READ sur ses trips assignés, WRITE sur expenses et checklist_checks
+- Public (share_token) : READ-ONLY sur le trip correspondant
+
+### Protection
+- Rate limiting sur l'API Claude (max 10 générations/heure/admin)
+- Validation des inputs côté serveur (Next.js API routes)
+- Sanitization des données avant insertion en BDD
+- CORS configuré pour le domaine uniquement
+- Variables d'environnement pour toutes les clés API
+
+---
+
+## 8. STRUCTURE DES FICHIERS
+
+```
+voyageo/
+├── app/
+│   ├── layout.tsx                    # Layout global + fonts + metadata
+│   ├── page.tsx                      # Login/signup
+│   ├── client/
+│   │   ├── page.tsx                  # Dashboard client
+│   │   └── trips/
+│   │       └── [id]/page.tsx         # Vue voyage client
+│   ├── admin/
+│   │   ├── page.tsx                  # Dashboard admin
+│   │   └── trips/
+│   │       ├── page.tsx              # Liste voyages
+│   │       ├── new/page.tsx          # Création voyage
+│   │       └── [id]/
+│   │           ├── edit/page.tsx     # Éditeur (IA + manuel)
+│   │           └── preview/page.tsx  # Preview client
+│   ├── trip/
+│   │   └── [token]/page.tsx          # Vue publique (share link)
+│   └── api/
+│       ├── ai/generate/route.ts      # Proxy Claude API
+│       ├── weather/[city]/route.ts   # Proxy OpenWeatherMap
+│       └── export/pdf/route.ts       # Génération PDF
+├── components/
+│   ├── ui/
+│   │   ├── Button.tsx
+│   │   ├── Card.tsx
+│   │   ├── Input.tsx
+│   │   ├── Badge.tsx
+│   │   ├── Toast.tsx
+│   │   └── Modal.tsx
+│   ├── trip/
+│   │   ├── HomeTab.tsx
+│   │   ├── MapTab.tsx
+│   │   ├── DaysTab.tsx
+│   │   ├── BudgetTab.tsx
+│   │   ├── ChecklistTab.tsx
+│   │   ├── ActivityCard.tsx
+│   │   ├── DaySelector.tsx
+│   │   ├── CityFilter.tsx
+│   │   ├── WeatherWidget.tsx
+│   │   ├── Countdown.tsx
+│   │   └── BottomNav.tsx
+│   ├── admin/
+│   │   ├── TripEditor.tsx
+│   │   ├── AIChat.tsx
+│   │   ├── DayEditor.tsx
+│   │   ├── ActivityForm.tsx
+│   │   └── TripCard.tsx
+│   ├── map/
+│   │   └── LeafletMap.tsx
+│   └── auth/
+│       └── AuthForm.tsx
+├── lib/
+│   ├── supabase/
+│   │   ├── client.ts                 # Client-side Supabase
+│   │   ├── server.ts                 # Server-side Supabase
+│   │   └── middleware.ts             # Auth middleware
+│   ├── utils.ts                      # Helpers (formatage, calculs budget)
+│   ├── constants.ts                  # Couleurs, icônes, catégories
+│   └── types.ts                      # TypeScript interfaces
+├── hooks/
+│   ├── useTrip.ts                    # Fetch & update trip data
+│   ├── useExpenses.ts                # CRUD dépenses
+│   ├── useChecklist.ts               # Toggle checks
+│   ├── useWeather.ts                 # Fetch météo
+│   └── useSwipe.ts                   # Gesture swipe
+├── public/
+│   ├── manifest.json                 # PWA manifest
+│   ├── sw.js                         # Service Worker
+│   └── icons/                        # App icons
+├── .env.local
+│   ├── NEXT_PUBLIC_SUPABASE_URL
+│   ├── NEXT_PUBLIC_SUPABASE_ANON_KEY
+│   ├── SUPABASE_SERVICE_ROLE_KEY
+│   ├── ANTHROPIC_API_KEY
+│   └── OPENWEATHERMAP_API_KEY
+├── tailwind.config.ts
+├── next.config.js
+└── package.json
+```
+
+---
+
+## 9. PROMPT REPLIT — À COPIER POUR LANCER LE PROJET
+
+```
+Crée une application web Next.js 14 (App Router) appelée "Voyageo" — un travel planner
+sur mesure avec les specs suivantes :
+
+STACK :
+- Next.js 14 App Router + TypeScript
+- Tailwind CSS (thème dark custom)
+- Supabase (Auth + PostgreSQL + RLS)
+- Leaflet.js pour les cartes interactives
+- Recharts pour les graphiques budget
+- Lucide React pour les icônes
+- Anthropic Claude API pour la génération IA d'itinéraires
+
+BASE DE DONNÉES (Supabase) :
+- Table profiles (id, email, name, role admin/client)
+- Table trips (id, created_by, client_id, title, subtitle, destination, cover_emoji,
+  cover_image_url, departure_date, return_date, total_budget, currency, travelers,
+  status draft/active/archived, share_token unique)
+- Table trip_days (id, trip_id, day_number, date_label, city, color, sort_order)
+- Table activities (id, day_id, time, title, icon, duration, cost, type, note,
+  is_personal boolean, latitude, longitude, booking_url, sort_order)
+- Table day_tips (id, day_id, content, sort_order)
+- Table day_budgets (id, day_id, hotel, food, transport, activities, other)
+- Table expenses (id, trip_id, user_id, day_number, category, amount, note)
+- Table checklist_items (id, trip_id, category, text, is_critical, sort_order)
+- Table checklist_checks (id, checklist_item_id, user_id, checked, checked_at)
+- Row Level Security : admins voient leurs trips, clients voient les trips assignés
+
+2 RÔLES :
+1) Admin (travel planner) : crée des voyages, utilise l'IA pour générer des
+   itinéraires, ajoute ses "bons plans perso" 🔥, assigne à un client
+2) Client : consulte son voyage (itinéraire, carte, budget, checklist), saisit
+   ses dépenses réelles
+
+PAGES :
+- / : Login (Supabase Auth)
+- /admin : Dashboard admin (stats, liste voyages, actions)
+- /admin/trips/new : Formulaire création voyage
+- /admin/trips/[id]/edit : Éditeur avec onglet IA (chat Claude) + onglet Jours
+  (édition manuelle des activités, toggle bon plan 🔥)
+- /client : Dashboard client (liste de ses voyages)
+- /client/trips/[id] : Vue voyage complète avec 5 onglets bottom nav :
+  Accueil (hero photo + countdown + stats + programme),
+  Carte (Leaflet dark avec markers emoji et polylines),
+  Jours (timeline d'activités avec expand, filtre par ville, swipe, liens
+  Google Maps et réservation, bons plans 🔥 en surbrillance),
+  Budget (prévu vs réel avec graphique, saisie de dépenses),
+  Checklist (items cochables avec persistance)
+- /trip/[token] : Vue publique read-only partageable sans login
+
+DESIGN : Dark mode (#0B1929), accents orange (#FF6348, #FFA502), vert (#1DD1A1).
+Font Nunito + Playfair Display. Mobile-first (max-width 520px). Animations fadeIn.
+Cards avec glassmorphism subtil.
+
+FEATURES CLÉS :
+- Génération IA d'itinéraires via Claude API (JSON structuré)
+- Bons plans perso 🔥 (is_personal) visuellement distincts
+- Carte Leaflet interactive avec tiles CartoDB dark
+- Budget dynamique : prévu (calculé) vs réel (saisi par le client)
+- Checklist persistante
+- Météo par ville (OpenWeatherMap API)
+- Liens Google Maps sur chaque activité
+- Liens de réservation optionnels
+- Swipe gauche/droite entre les jours
+- Lien de partage public (share_token)
+- Export PDF de l'itinéraire
+- PWA installable
+```
+
+---
+
+## 10. ROADMAP D'IMPLÉMENTATION
+
+### Phase 1 — Fondations (Semaine 1)
+- [ ] Setup Next.js + Tailwind + Supabase
+- [ ] Tables BDD + RLS
+- [ ] Auth (login, signup, middleware)
+- [ ] Layout global + composants UI de base
+- [ ] Routing admin/client
+
+### Phase 2 — Admin & Éditeur (Semaine 2)
+- [ ] Dashboard admin
+- [ ] Formulaire création voyage
+- [ ] Éditeur de jours (CRUD activités)
+- [ ] Toggle bons plans 🔥
+- [ ] Intégration Claude API pour génération IA
+
+### Phase 3 — Vue Client (Semaine 3)
+- [ ] Onglet Accueil (hero, stats, programme)
+- [ ] Onglet Carte (Leaflet)
+- [ ] Onglet Jours (timeline, expand, swipe)
+- [ ] Onglet Budget (graphiques, saisie dépenses)
+- [ ] Onglet Checklist
+
+### Phase 4 — Polish & Features (Semaine 4)
+- [ ] Météo temps réel (OpenWeatherMap)
+- [ ] Export PDF
+- [ ] Page de partage public (share_token)
+- [ ] PWA (manifest, service worker)
+- [ ] Tests + corrections bugs
+- [ ] Déploiement production
