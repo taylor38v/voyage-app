@@ -1,22 +1,51 @@
 databases:
-  - name: voyage-db
+  - name: voyageo-db
     plan: free
-    databaseName: voyage
-    user: voyage_user
+    databaseName: voyageo
+    user: voyageo_user
 
 services:
   - type: web
     plan: free
-    name: voyage-app
+    name: voyageo
     runtime: node
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build && npx drizzle-kit push --force
     startCommand: npm run start
+    healthCheckPath: /api/auth/user
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
         fromDatabase:
-          name: voyage-db
+          name: voyageo-db
           property: connectionString
       - key: SESSION_SECRET
         generateValue: true
+      - key: APP_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_SOLO_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_SOLO_YEARLY
+        sync: false
+      - key: STRIPE_PRICE_PRO_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_PRO_YEARLY
+        sync: false
+      - key: STRIPE_PRICE_AGENCY_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_AGENCY_YEARLY
+        sync: false
+      - key: METEOBLUE_API_KEY
+        sync: false
+      - key: SUPER_ADMIN_RESET_PASSWORD
+        sync: false

@@ -1,42 +1,20 @@
-// Resend integration for transactional emails
+// Resend integration for transactional emails (direct API, no Replit proxy)
 import { Resend } from 'resend';
 
-let connectionSettings: any;
+const APP_URL = process.env.APP_URL || 'https://voyageo.app';
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Voyageo <noreply@voyageo.app>';
 
-async function getCredentials() {
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY
-    ? 'repl ' + process.env.REPL_IDENTITY
-    : process.env.WEB_REPL_RENEWAL
-    ? 'depl ' + process.env.WEB_REPL_RENEWAL
-    : null;
+let resendClient: Resend | null = null;
 
-  if (!xReplitToken) {
-    throw new Error('X_REPLIT_TOKEN not found for repl/depl');
+function getResendClient(): Resend | null {
+  if (resendClient) return resendClient;
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn('[Email] RESEND_API_KEY not set — emails disabled');
+    return null;
   }
-
-  connectionSettings = await fetch(
-    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=resend',
-    {
-      headers: {
-        'Accept': 'application/json',
-        'X_REPLIT_TOKEN': xReplitToken
-      }
-    }
-  ).then(res => res.json()).then(data => data.items?.[0]);
-
-  if (!connectionSettings || (!connectionSettings.settings.api_key)) {
-    throw new Error('Resend not connected');
-  }
-  return { apiKey: connectionSettings.settings.api_key, fromEmail: connectionSettings.settings.from_email };
-}
-
-async function getUncachableResendClient() {
-  const { apiKey, fromEmail } = await getCredentials();
-  return {
-    client: new Resend(apiKey),
-    fromEmail: fromEmail || 'noreply@voyageo.app'
-  };
+  resendClient = new Resend(apiKey);
+  return resendClient;
 }
 
 const emailWrapper = (content: string) => `
@@ -51,12 +29,12 @@ const emailWrapper = (content: string) => `
 `;
 
 export async function sendWelcomeEmail(toEmail: string, firstName?: string | null) {
+  const client = getResendClient();
+  if (!client) return false;
   try {
-    const { client, fromEmail } = await getUncachableResendClient();
     const name = firstName || 'Bonjour';
-
     await client.emails.send({
-      from: fromEmail,
+      from: FROM_EMAIL,
       to: toEmail,
       subject: 'Bienvenue sur Voyageo !',
       html: emailWrapper(`
@@ -64,12 +42,11 @@ export async function sendWelcomeEmail(toEmail: string, firstName?: string | nul
         <p style="font-size: 15px; line-height: 1.6;">Bienvenue sur <strong>Voyageo</strong> ! Votre compte a été créé avec succès.</p>
         <p style="font-size: 15px; line-height: 1.6;">Vous pouvez dès maintenant créer votre premier voyage et l'envoyer à vos clients.</p>
         <div style="text-align: center; margin: 32px 0;">
-          <a href="https://voyageo.replit.app/admin" style="display: inline-block; background: #FF6B6B; color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 16px;">Accéder à mon espace</a>
+          <a href="${APP_URL}/admin" style="display: inline-block; background: #FF6B6B; color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 16px;">Accéder à mon espace</a>
         </div>
         <p style="font-size: 13px; color: #999; line-height: 1.5;">Si vous avez des questions, n'hésitez pas à nous contacter.</p>
       `),
     });
-
     console.log(`[Email] Welcome email sent to ${toEmail}`);
     return true;
   } catch (err) {
@@ -79,12 +56,12 @@ export async function sendWelcomeEmail(toEmail: string, firstName?: string | nul
 }
 
 export async function sendTripSharedEmail(toEmail: string, tripTitle: string, shareUrl: string, senderName?: string) {
+  const client = getResendClient();
+  if (!client) return false;
   try {
-    const { client, fromEmail } = await getUncachableResendClient();
     const from = senderName || 'Votre travel planner';
-
     await client.emails.send({
-      from: fromEmail,
+      from: FROM_EMAIL,
       to: toEmail,
       subject: `Votre voyage "${tripTitle}" est prêt !`,
       html: emailWrapper(`
@@ -97,7 +74,6 @@ export async function sendTripSharedEmail(toEmail: string, tripTitle: string, sh
         <p style="font-size: 13px; color: #999; line-height: 1.5;">Ce lien est personnel. Vous pouvez le consulter à tout moment depuis votre téléphone.</p>
       `),
     });
-
     console.log(`[Email] Trip shared email sent to ${toEmail} for "${tripTitle}"`);
     return true;
   } catch (err) {
@@ -107,12 +83,12 @@ export async function sendTripSharedEmail(toEmail: string, tripTitle: string, sh
 }
 
 export async function sendPasswordResetEmail(toEmail: string, resetUrl: string, firstName?: string | null) {
+  const client = getResendClient();
+  if (!client) return false;
   try {
-    const { client, fromEmail } = await getUncachableResendClient();
     const name = firstName || 'Bonjour';
-
     await client.emails.send({
-      from: fromEmail,
+      from: FROM_EMAIL,
       to: toEmail,
       subject: 'Réinitialisation de votre mot de passe - Voyageo',
       html: emailWrapper(`
@@ -124,7 +100,6 @@ export async function sendPasswordResetEmail(toEmail: string, resetUrl: string, 
         <p style="font-size: 13px; color: #999; line-height: 1.5;">Ce lien est valable 1 heure. Si vous n'avez pas demandé cette réinitialisation, ignorez simplement cet email.</p>
       `),
     });
-
     console.log(`[Email] Password reset sent to ${toEmail}`);
     return true;
   } catch (err) {

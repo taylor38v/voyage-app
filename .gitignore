@@ -9,4 +9,4 @@ vite.config.ts.*
 .agents/
 .config/.replit
 replit.md
-server/replit_integrations/
+.replit
