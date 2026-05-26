@@ -361,9 +361,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Aucun email client associé à ce voyage. Ajoutez des emails dans les paramètres du voyage." });
       }
 
-      const host = req.headers.host || "voyageo.replit.app";
-      const protocol = req.headers["x-forwarded-proto"] || "https";
-      const shareUrl = `${protocol}://${host}/share/${trip.shareToken}`;
+      const appUrl = process.env.APP_URL;
+      let shareUrl: string;
+      if (appUrl) {
+        shareUrl = `${appUrl.replace(/\/$/, "")}/share/${trip.shareToken}`;
+      } else {
+        const host = req.headers.host || "voyageo.app";
+        const protocol = req.headers["x-forwarded-proto"] || "https";
+        shareUrl = `${protocol}://${host}/share/${trip.shareToken}`;
+      }
       const senderName = req.adminUser.displayName || req.adminUser.firstName || "Votre travel planner";
 
       const { sendTripSharedEmail } = await import("./email");
@@ -918,8 +924,10 @@ export async function registerRoutes(
   }
 
   const anthropic = new Anthropic({
-    apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
+    apiKey: process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
+    ...(process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL
+      ? { baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL }
+      : {}),
     timeout: 240000,
   });
 
@@ -947,8 +955,7 @@ export async function registerRoutes(
 
     try {
       console.log("[AI Generate] Starting generation for description:", description.slice(0, 100));
-      console.log("[AI Generate] API Key exists:", !!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY);
-      console.log("[AI Generate] Base URL:", process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL);
+      console.log("[AI Generate] API Key exists:", !!(process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY));
 
       const systemPrompt = `Tu es un expert en planification de voyages. Génère un itinéraire JSON complet.
 

@@ -45,7 +45,7 @@ export function CGV() {
     <LegalLayout title="Conditions Générales de Vente">
       <section>
         <h2 className="text-lg font-semibold text-foreground">Article 1 — Objet</h2>
-        <p>Les présentes Conditions Générales de Vente (CGV) régissent l'utilisation de la plateforme Voyageo, accessible à l'adresse voyageo.replit.app (ci-après « le Service »), éditée par Jérôme Pavo (ci-après « l'Éditeur »).</p>
+        <p>Les présentes Conditions Générales de Vente (CGV) régissent l'utilisation de la plateforme Voyageo (ci-après « le Service »), éditée par Jérôme Pavo (ci-après « l'Éditeur »).</p>
         <p>Le Service propose aux professionnels du voyage (travel planners, agents de voyage, organisateurs) un outil de création et de partage d'itinéraires personnalisés à destination de leurs clients.</p>
       </section>
 
@@ -121,9 +121,9 @@ export function MentionsLegales() {
         <h2 className="text-lg font-semibold text-foreground">Hébergement</h2>
         <p>Le site est hébergé par :</p>
         <ul className="list-none space-y-1">
-          <li><strong>Replit, Inc.</strong></li>
-          <li>351 California St, Suite 200, San Francisco, CA 94104, USA</li>
-          <li>Site web : <a href="https://replit.com" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">replit.com</a></li>
+          <li><strong>Render Services, Inc.</strong></li>
+          <li>525 Brannan St, Suite 300, San Francisco, CA 94107, USA</li>
+          <li>Site web : <a href="https://render.com" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">render.com</a></li>
         </ul>
       </section>
 
