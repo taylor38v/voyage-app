@@ -654,16 +654,24 @@ export async function registerRoutes(
 
   // === ACTIVITIES ===
 
+  // Les champs numériques peuvent arriver en "" depuis les formulaires — on les neutralise avant validation
+  function sanitizeActivityBody(body: any) {
+    for (const k of ["latitude", "longitude", "nights", "sortOrder"]) {
+      if (body && body[k] === "") body[k] = null;
+    }
+    return body;
+  }
+
   app.post(api.activities.create.path, isAuthenticated, async (req, res) => {
     const dayId = Number(req.params.dayId);
-    const input = api.activities.create.input.parse(req.body);
+    const input = api.activities.create.input.parse(sanitizeActivityBody(req.body));
     const activity = await storage.createActivity({ ...input, dayId });
     res.status(201).json(activity);
   });
 
   app.put(api.activities.update.path, isAdmin, async (req, res) => {
     const id = Number(req.params.id);
-    const input = api.activities.update.input.parse(req.body);
+    const input = api.activities.update.input.parse(sanitizeActivityBody(req.body));
     const activity = await storage.updateActivity(id, input);
     res.json(activity);
   });

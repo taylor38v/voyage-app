@@ -753,7 +753,9 @@ function DayItem({ day, tripId, expanded, onToggle }: { day: any, tripId: number
     e.preventDefault();
     const data: any = { ...actForm, sortOrder: (day.activities?.length || 0) + 1 };
     if (actForm.latitude) data.latitude = parseFloat(actForm.latitude);
+    else delete data.latitude;
     if (actForm.longitude) data.longitude = parseFloat(actForm.longitude);
+    else delete data.longitude;
     if (!actForm.googleMapsUrl) delete data.googleMapsUrl;
     if (!actForm.bookingUrl) delete data.bookingUrl;
     if (!actForm.address) delete data.address;
