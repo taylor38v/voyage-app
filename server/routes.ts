@@ -10,7 +10,8 @@ import { db } from "./db";
 import { trips, days, activities, dayTips, dayBudgets, checklistItems } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { eq, sql, and, ne, desc } from "drizzle-orm";
-import Anthropic from "@anthropic-ai/sdk";
+import { generateTrip } from "./ai/generate-trip";
+import { geocoderLieu, geocoderVille, lienGoogleMaps } from "./geocode";
 import { registerStripeRoutes } from "./stripe-routes";
 import { PLAN_LIMITS, type PlanKey } from "./stripe";
 
@@ -668,10 +669,47 @@ export async function registerRoutes(
     return body;
   }
 
+  // Place une activité saisie à la main sur la carte, sans bloquer la réponse HTTP.
+  // Ne touche qu'aux activités sans coordonnées ; l'adresse et le lien Maps ne sont remplis que s'ils sont vides.
+  async function geocoderActiviteEnArrierePlan(activityId: number) {
+    try {
+      const [ligne] = await db
+        .select({
+          title: activities.title,
+          latitude: activities.latitude,
+          longitude: activities.longitude,
+          address: activities.address,
+          googleMapsUrl: activities.googleMapsUrl,
+          city: days.city,
+          destination: trips.destination,
+        })
+        .from(activities)
+        .innerJoin(days, eq(activities.dayId, days.id))
+        .innerJoin(trips, eq(days.tripId, trips.id))
+        .where(eq(activities.id, activityId));
+      if (!ligne || (ligne.latitude != null && ligne.longitude != null)) return;
+      const centre = await geocoderVille(ligne.city, ligne.destination);
+      const point = await geocoderLieu({ nom: ligne.title, ville: ligne.city, pays: ligne.destination, centre });
+      if (!point) return;
+      await db
+        .update(activities)
+        .set({
+          latitude: point.latitude,
+          longitude: point.longitude,
+          address: ligne.address || point.address || null,
+          googleMapsUrl: ligne.googleMapsUrl || lienGoogleMaps(ligne.title, ligne.city),
+        })
+        .where(eq(activities.id, activityId));
+    } catch (e) {
+      console.error("[Geocode] activité " + activityId + " :", e instanceof Error ? e.message : e);
+    }
+  }
+
   app.post(api.activities.create.path, isAuthenticated, async (req, res) => {
     const dayId = Number(req.params.dayId);
     const input = api.activities.create.input.parse(sanitizeActivityBody(req.body));
     const activity = await storage.createActivity({ ...input, dayId });
+    if (activity.latitude == null || activity.longitude == null) void geocoderActiviteEnArrierePlan(activity.id);
     res.status(201).json(activity);
   });
 
@@ -679,6 +717,7 @@ export async function registerRoutes(
     const id = Number(req.params.id);
     const input = api.activities.update.input.parse(sanitizeActivityBody(req.body));
     const activity = await storage.updateActivity(id, input);
+    if (activity.latitude == null || activity.longitude == null) void geocoderActiviteEnArrierePlan(activity.id);
     res.json(activity);
   });
 
@@ -903,51 +942,12 @@ export async function registerRoutes(
   });
 
   // === AI TRIP GENERATION ===
-
-  function repairTruncatedJson(text: string): string {
-    let s = text.trim();
-    if (s.startsWith("```")) {
-      s = s.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
-    }
-    let inString = false;
-    let escape = false;
-    const stack: string[] = [];
-    for (let i = 0; i < s.length; i++) {
-      const c = s[i];
-      if (escape) { escape = false; continue; }
-      if (c === '\\' && inString) { escape = true; continue; }
-      if (c === '"') { inString = !inString; continue; }
-      if (inString) continue;
-      if (c === '{' || c === '[') stack.push(c);
-      if (c === '}' || c === ']') stack.pop();
-    }
-    if (inString) s += '"';
-    let lastValid = s.length - 1;
-    while (lastValid > 0 && s[lastValid] !== '}' && s[lastValid] !== ']' && s[lastValid] !== '"' && s[lastValid] !== 'e' && s[lastValid] !== 'l') {
-      lastValid--;
-    }
-    const afterLast = s.substring(lastValid + 1).trim();
-    if (afterLast.match(/^[,:]/)) {
-      s = s.substring(0, lastValid + 1);
-    }
-    while (stack.length > 0) {
-      const opener = stack.pop()!;
-      s += opener === '{' ? '}' : ']';
-    }
-    return s;
-  }
-
-  const anthropic = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-    ...(process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL
-      ? { baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL }
-      : {}),
-    timeout: 240000,
-  });
+  // Pipeline en plusieurs appels courts (squelette, journées en parallèle, géocodage des lieux) :
+  // voir server/ai/generate-trip.ts. Le JSON renvoyé garde la forme attendue par create-from-ai.
 
   app.post("/api/admin/generate-trip", isAdmin, async (req: any, res) => {
     const { description } = req.body;
-    if (!description || typeof description !== "string") {
+    if (!description || typeof description !== "string" || !description.trim()) {
       return res.status(400).json({ message: "Description requise" });
     }
 
@@ -969,69 +969,13 @@ export async function registerRoutes(
 
     try {
       console.log("[AI Generate] Starting generation for description:", description.slice(0, 100));
-      console.log("[AI Generate] API Key exists:", !!(process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY));
-
-      const systemPrompt = `Tu es un expert en planification de voyages. Génère un itinéraire JSON complet.
-
-IMPORTANT: Réponds UNIQUEMENT avec du JSON valide, sans texte, sans markdown, sans backticks.
-
-Structure JSON:
-{"title":"Titre","subtitle":"Sous-titre","destination":"Pays","coverEmoji":"emoji","totalBudget":0,"currency":"€","travelers":2,"days":[{"dayNumber":1,"dateLabel":"Jour 1","city":"Ville","color":"#hex","activities":[{"time":"HH:MM","title":"Titre","icon":"camera","duration":"2h","cost":0,"type":"activity","note":"Conseil court","isPersonal":false}],"tips":["conseil"],"budget":{"hotel":0,"food":0,"transport":0,"activities":0,"other":0}}],"checklist":[{"category":"Documents","text":"Item","isCritical":true,"phase":"before","hint":"Conseil optionnel"}]}
-
-Ic\u00f4nes valides: plane, hotel, utensils, camera, train, ship, mountain, waves, glasses, anchor, sparkles, heart, shopping-bag, droplets
-Types valides: activity, food, hotel, transport, shopping, nightlife
-Cat\u00e9gories checklist: Documents, Sant\u00e9, Tech, V\u00eatements, Finance, Pratique
-Phases checklist: before (bien avant), week (semaine avant), pack (dans la valise)
-Subcategories valise: essentiels, vetements, toilette, tech, confort
-
-R\u00e8gles:
-- 3 activit\u00e9s par jour (pas plus pour garder le JSON compact)
-- Notes courtes (max 15 mots)
-- Tips: 1 seul par jour
-- 20% des activit\u00e9s avec isPersonal:true
-- Couleurs vibrantes diff\u00e9rentes par ville
-- Budget r\u00e9aliste, checklist 10-15 items r\u00e9partis dans les 3 phases
-- Tout en FRAN\u00c7AIS
-- Activit\u00e9s vari\u00e9es: culture, nourriture, nature, transport`;
-
-      const message = await anthropic.messages.create({
-        model: "claude-sonnet-4-5",
-        max_tokens: 16384,
-        messages: [{ role: "user", content: description }],
-        system: systemPrompt,
+      const trip = await generateTrip(description.trim().slice(0, 4000), {
+        onEtape: (etape) => console.log("[AI Generate] " + etape),
       });
-
-      const content = message.content[0];
-      if (content.type !== "text") {
-        return res.status(500).json({ message: "Réponse IA invalide" });
-      }
-
-      let jsonText = content.text.trim();
-      if (jsonText.startsWith("```")) {
-        jsonText = jsonText.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
-      }
-
-      if (message.stop_reason === "max_tokens") {
-        console.warn("[AI Generate] Response truncated (max_tokens reached), attempting repair...");
-        jsonText = repairTruncatedJson(jsonText);
-      }
-
-      let parsed;
-      try {
-        parsed = JSON.parse(jsonText);
-      } catch {
-        console.error("[AI Generate] JSON parse error, raw:", content.text.slice(0, 500));
-        if (message.stop_reason === "max_tokens") {
-          return res.status(500).json({ message: "Le voyage est trop long pour être généré en une fois. Essayez avec moins de jours." });
-        }
-        return res.status(500).json({ message: "L'IA a généré une réponse invalide. Réessayez." });
-      }
-
-      if (!parsed.days || !Array.isArray(parsed.days) || parsed.days.length === 0) {
+      if (!trip.days.length) {
         return res.status(500).json({ message: "L'IA n'a pas pu générer de jours. Réessayez." });
       }
-
-      res.json(parsed);
+      res.json(trip);
     } catch (err: any) {
       console.error("[AI Generate] Full error:", JSON.stringify({
         message: err.message,
@@ -1049,6 +993,8 @@ R\u00e8gles:
         userMsg = "Erreur d'authentification avec le service IA. Vérifiez la configuration.";
       } else if (err.status === 529 || err.status === 503) {
         userMsg = "Le service IA est temporairement surchargé. Réessayez dans quelques instants.";
+      } else if (err.status === undefined && err.message) {
+        userMsg = err.message;
       } else {
         userMsg = "Erreur lors de la génération IA. Réessayez dans un moment.";
       }
@@ -1056,6 +1002,10 @@ R\u00e8gles:
       res.status(500).json({ message: userMsg });
     }
   });
+
+  // Coordonnée numérique valide ou null (les formulaires envoient parfois "" ou undefined)
+  const coordonnee = (v: unknown): number | null =>
+    v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v);
 
   app.post("/api/admin/create-from-ai", isAdmin, async (req: any, res) => {
     const { tripData } = req.body;
@@ -1112,6 +1062,10 @@ R\u00e8gles:
                 type: ["activity", "food", "hotel", "transport", "shopping", "nightlife"].includes(act.type) ? act.type : "activity",
                 note: act.note ? String(act.note).slice(0, 500) : null,
                 isPersonal: Boolean(act.isPersonal),
+                address: act.address ? String(act.address).slice(0, 300) : null,
+                latitude: coordonnee(act.latitude),
+                longitude: coordonnee(act.longitude),
+                googleMapsUrl: act.googleMapsUrl ? String(act.googleMapsUrl).slice(0, 500) : null,
                 sortOrder: idx + 1,
               }));
             if (actValues.length > 0) {
