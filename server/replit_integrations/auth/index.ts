@@ -25,6 +25,7 @@ export async function setupAuth(app: Express) {
     createTableIfMissing: true,
     ttl: sessionTtl,
     tableName: "sessions",
+    pruneSessionInterval: 6 * 60 * 60, // secondes ; le défaut (15 min) réveillait Neon en permanence une fois Render maintenu éveillé
   });
 
   app.set("trust proxy", 1);

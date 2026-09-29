@@ -123,6 +123,12 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Health check sans base ni session : cible du pinger keep-alive (Render free)
+  app.get("/api/health", (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json({ status: "ok", uptime: Math.round(process.uptime()) });
+  });
+
   await setupAuth(app);
   registerAuthRoutes(app);
   registerObjectStorageRoutes(app);
