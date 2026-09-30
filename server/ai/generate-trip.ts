@@ -6,7 +6,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod/v4"; // le helper zodOutputFormat attend des schémas zod v4 (fournis par zod ≥ 3.25 sous "zod/v4")
-import pLimit from "p-limit";
+import { limiteur } from "../limite";
 import { geocoderLieu, geocoderVille, lienGoogleMaps, type Centre } from "../geocode";
 
 export const MODELE_IA = process.env.AI_MODEL || "claude-opus-5";
@@ -233,7 +233,7 @@ export async function generateTrip(description: string, options: { onEtape?: (me
 
   // 2. Journées en parallèle
   etape(`Détail des ${squelette.days.length} journées`);
-  const limite = pLimit(PARALLELISME_JOURS);
+  const limite = limiteur(PARALLELISME_JOURS);
   const joursEnErreur: number[] = [];
   const jours = await Promise.all(
     squelette.days.map((j) =>

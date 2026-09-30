@@ -1,6 +1,6 @@
 // Géocodage gratuit et sans clé : Photon (Komoot) en premier, Nominatim (OSM) en secours.
 // Utilisé par la génération IA, la création/mise à jour manuelle d'activités et le script de rattrapage.
-import pLimit from "p-limit";
+import { limiteur } from "./limite";
 
 const USER_AGENT = "Voyageo/1.0 (+https://voyageo-0uv7.onrender.com)";
 const RAYON_MAX_KM = 150; // au-delà, le résultat est considéré comme un homonyme d'une autre région
@@ -10,8 +10,8 @@ export type Centre = { latitude: number; longitude: number };
 export type PointGeo = Centre & { address: string | null; source: "photon" | "nominatim" | "ia" };
 
 const cache = new Map<string, PointGeo | Centre | null>();
-const limitePhoton = pLimit(3);
-const limiteNominatim = pLimit(1);
+const limitePhoton = limiteur(3);
+const limiteNominatim = limiteur(1);
 let dernierAppelNominatim = 0;
 
 const MOTS_VIDES = new Set([
