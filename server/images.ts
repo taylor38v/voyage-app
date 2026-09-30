@@ -22,9 +22,11 @@ async function chercher(langue: "fr" | "en", q: string, point?: Centre | null): 
     for (const p of pages) {
       const src: string | undefined = p?.thumbnail?.source;
       if (!src || /\.svg/i.test(src)) continue; // cartes, logos, drapeaux
-      if (!ressemble(q.split(",")[0], p.title)) continue;
       const c = p.coordinates?.[0];
-      if (point && c && distanceKm(point, { latitude: c.lat, longitude: c.lon }) > 2) continue;
+      const distance = point && c ? distanceKm(point, { latitude: c.lat, longitude: c.lon }) : null;
+      if (distance != null && distance > 2) continue;
+      // Nom proche, ou article situé à moins de 300 m du lieu (noms traduits : « Museu do Azulejo » / « National Tile Museum »)
+      if (!ressemble(q.split(",")[0], p.title) && !(distance != null && distance <= 0.3)) continue;
       return src.split("?")[0];
     }
     return null;
