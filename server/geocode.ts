@@ -34,7 +34,7 @@ function tokensSignificatifs(texte: string): string[] {
 }
 
 /** Vrai si au moins la moitié des mots significatifs de la requête se retrouvent dans les champs du résultat. */
-function ressemble(requete: string, ...champs: Array<string | undefined | null>): boolean {
+export function ressemble(requete: string, ...champs: Array<string | undefined | null>): boolean {
   const q = tokensSignificatifs(requete);
   if (q.length === 0) return true;
   const texte = new Set(champs.filter((c): c is string => !!c).flatMap((c) => tokens(c)));

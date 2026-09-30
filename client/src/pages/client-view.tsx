@@ -264,9 +264,51 @@ function ClientAccueil({ trip }: { trip: any }) {
     if (day.budget) categories.forEach(c => { totalSpent += parseFloat(day.budget[c] || "0"); });
   });
 
+  const lieuxEnPhoto = days
+    .flatMap((d: any) => (d.activities || []).map((a: any) => ({ ...a, dayNumber: d.dayNumber, city: d.city })))
+    .filter((a: any) => typeof a.imageUrl === "string" && a.imageUrl.startsWith("https://"))
+    .slice(0, 12);
+
   return (
     <div className="pb-24 space-y-3">
+      {trip.coverImageUrl && (
+        <div className="relative overflow-hidden rounded-2xl aspect-[16/9] bg-muted" data-testid="hero-cover">
+          <img src={trip.coverImageUrl} alt={trip.destination || trip.title} className="absolute inset-0 w-full h-full object-cover" loading="eager" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-4">
+            <p className="text-white font-display font-bold text-xl leading-tight drop-shadow">{trip.title}</p>
+            {trip.subtitle && <p className="text-white/85 text-xs mt-1 line-clamp-2">{trip.subtitle}</p>}
+          </div>
+        </div>
+      )}
+
       <CountdownCard departureDate={trip.departureDate} />
+
+      {lieuxEnPhoto.length > 0 && (
+        <Card className="p-4" data-testid="card-highlights">
+          <p className="text-sm font-display font-bold text-foreground mb-3 flex items-center gap-2">
+            <Camera className="w-4 h-4 text-primary" /> À ne pas manquer
+          </p>
+          <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-1 px-1 pb-1">
+            {lieuxEnPhoto.map((a: any) => (
+              <div key={a.id} className="snap-start shrink-0 w-40">
+                <div className="relative w-40 h-28 rounded-xl overflow-hidden bg-muted">
+                  <img
+                    src={a.imageUrl}
+                    alt={a.title}
+                    loading="lazy"
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.currentTarget.parentElement?.parentElement as HTMLElement).style.display = "none"; }}
+                  />
+                  <span className="absolute top-1.5 left-1.5 text-[10px] font-semibold bg-black/60 text-white rounded-full px-2 py-0.5">J{a.dayNumber}</span>
+                </div>
+                <p className="text-xs font-medium text-foreground mt-1.5 line-clamp-2 leading-snug">{a.title}</p>
+                <p className="text-[10px] text-muted-foreground">{a.city}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-3 text-center" data-testid="card-stat-days">

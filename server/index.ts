@@ -6,8 +6,11 @@ import bcrypt from "bcryptjs";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
+import { entetesSecurite, nettoyerUrls } from "./securite";
 
 const app = express();
+app.disable("x-powered-by");
+app.use(entetesSecurite);
 const httpServer = createServer(app);
 
 declare module "http" {
@@ -28,6 +31,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.urlencoded({ extended: false }));
+app.use(nettoyerUrls);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -55,9 +59,7 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
+      // Les corps de réponse ne sont plus journalisés (données clients, jetons).
 
       log(logLine);
     }
@@ -113,7 +115,7 @@ app.use((req, res, next) => {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
+      reusePort: process.platform !== "win32", // non supporté sous Windows (tests locaux)
     },
     () => {
       log(`serving on port ${port}`);

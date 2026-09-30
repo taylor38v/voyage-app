@@ -10,6 +10,7 @@ import { randomUUID, createHash } from "crypto";
 import { PLAN_LIMITS, type PlanKey } from "../../stripe";
 import { sendPasswordResetEmail } from "../../email";
 import { storage } from "../../storage";
+import { limite } from "../../securite";
 
 declare module "express-session" {
   interface SessionData {
@@ -48,14 +49,17 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
   if (!userId) {
     return res.status(401).json({ message: "Non authentifié" });
   }
-  (req as any).user = { claims: { sub: userId } };
+  const [user] = await db.select({ isActive: users.isActive, email: users.email }).from(users).where(eq(users.id, userId));
+  if (!user) return res.status(401).json({ message: "Non authentifié" });
+  if (!user.isActive) return res.status(403).json({ message: "Compte désactivé" });
+  (req as any).user = { claims: { sub: userId, email: user.email } };
   (req as any).isAuthenticated = () => true;
   return next();
 };
 
 export function registerAuthRoutes(app: Express) {
 
-  app.post("/api/auth/register", async (req, res) => {
+  app.post("/api/auth/register", limite("register", 10, 60 * 60 * 1000), async (req, res) => {
     try {
       const { email, password, firstName, lastName, plan } = req.body;
 
@@ -90,6 +94,7 @@ export function registerAuthRoutes(app: Express) {
         isActive: true,
       }).returning();
 
+      await new Promise<void>((ok, ko) => req.session.regenerate((e) => (e ? ko(e) : ok())));
       req.session.userId = newUser.id;
 
       import("../../email").then(({ sendWelcomeEmail }) => {
@@ -110,7 +115,7 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", limite("login", 8, 15 * 60 * 1000, true, 30), async (req, res) => {
     try {
       const { email, password } = req.body;
 
@@ -136,6 +141,7 @@ export function registerAuthRoutes(app: Express) {
         return res.status(401).json({ message: "Email ou mot de passe incorrect" });
       }
 
+      await new Promise<void>((ok, ko) => req.session.regenerate((e) => (e ? ko(e) : ok())));
       req.session.userId = user.id;
 
       res.json({
@@ -275,7 +281,7 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post("/api/auth/forgot-password", async (req, res) => {
+  app.post("/api/auth/forgot-password", limite("forgot", 5, 60 * 60 * 1000, true), async (req, res) => {
     try {
       const { email } = req.body;
       if (!email) return res.status(400).json({ message: "Email requis" });
@@ -294,7 +300,7 @@ export function registerAuthRoutes(app: Express) {
         resetTokenExpiresAt: expiresAt,
       }).where(eq(users.id, user.id));
 
-      const origin = req.headers.origin || `https://${req.headers.host}`;
+      const origin = (process.env.APP_URL || "https://voyageo-0uv7.onrender.com").replace(/\/$/, "");
       const resetUrl = `${origin}/reset-password?token=${rawToken}`;
 
       await sendPasswordResetEmail(user.email!, resetUrl, user.firstName);
@@ -306,7 +312,7 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post("/api/auth/reset-password", async (req, res) => {
+  app.post("/api/auth/reset-password", limite("reset", 10, 60 * 60 * 1000), async (req, res) => {
     try {
       const { token, password } = req.body;
       if (!token || !password) return res.status(400).json({ message: "Token et mot de passe requis" });

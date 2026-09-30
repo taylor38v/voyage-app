@@ -8,6 +8,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod/v4"; // le helper zodOutputFormat attend des schémas zod v4 (fournis par zod ≥ 3.25 sous "zod/v4")
 import { limiteur } from "../limite";
 import { geocoderLieu, geocoderVille, lienGoogleMaps, type Centre } from "../geocode";
+import { imageLieu, typeAvecPhoto } from "../images";
 
 export const MODELE_IA = process.env.AI_MODEL || "claude-opus-5";
 const PARALLELISME_JOURS = 6;
@@ -112,6 +113,7 @@ export type ResultatGeneration = {
   totalBudget: number;
   currency: string;
   travelers: number;
+  coverImageUrl: string | null;
   days: Array<{
     dayNumber: number;
     dateLabel: string;
@@ -132,6 +134,7 @@ export type ResultatGeneration = {
       latitude: number | null;
       longitude: number | null;
       googleMapsUrl: string;
+      imageUrl: string | null;
     }>;
     tips: string[];
     budget: Jour["budget"];
@@ -158,7 +161,7 @@ function coutUsd(modele: string, entree: number, sortie: number): number {
   return (entree * pe + sortie * ps) / 1_000_000;
 }
 
-async function genererJour(client: Anthropic, description: string, squelette: Squelette, jour: Squelette["days"][number]): Promise<Jour> {
+async function genererJour(client: Anthropic, description: string, squelette: Squelette, jour: Squelette["days"][number], consigne = ""): Promise<Jour> {
   const autresJours = squelette.days
     .filter((j) => j.dayNumber !== jour.dayNumber)
     .map((j) => `Jour ${j.dayNumber} (${j.city}) : ${j.theme}`)
@@ -171,7 +174,7 @@ Voyage : ${squelette.title} — ${squelette.destination}, ${squelette.travelers}
 Les autres journées (à ne pas répéter) :
 ${autresJours || "(aucune)"}
 
-JOURNÉE À DÉTAILLER : Jour ${jour.dayNumber} (${jour.dateLabel}) à ${jour.city}. Fil rouge : ${jour.theme}`;
+JOURNÉE À DÉTAILLER : Jour ${jour.dayNumber} (${jour.dateLabel}) à ${jour.city}. Fil rouge : ${jour.theme}${consigne ? `\n\nDemande du travel planner pour cette journée : ${consigne}` : ""}`;
 
   const requete: Parameters<typeof client.messages.parse>[0] = {
     model: MODELE_IA,
@@ -197,19 +200,56 @@ JOURNÉE À DÉTAILLER : Jour ${jour.dayNumber} (${jour.dateLabel}) à ${jour.ci
   throw derniereErreur instanceof Error ? derniereErreur : new Error(String(derniereErreur));
 }
 
-// Compteur de tokens partagé pendant une génération (une génération à la fois par requête HTTP ; les appels
-// parallèles d'une même génération l'incrémentent, ce qui est le but).
-let cumul = { input: 0, output: 0 };
+type ActiviteEnrichie = ResultatGeneration["days"][number]["activities"][number];
 
-export async function generateTrip(description: string, options: { onEtape?: (message: string) => void } = {}): Promise<ResultatGeneration> {
+/** Géocode chaque activité, ajoute le lien Google Maps et, pour les visites, une photo Wikipedia. */
+async function enrichirActivites(acts: Jour["activities"], ville: string, pays: string, centre: Centre | null): Promise<{ activites: ActiviteEnrichie[]; placees: number }> {
+  let placees = 0;
+  const activites = await Promise.all(
+    acts.map(async (a) => {
+      const nom = a.placeName?.trim() || a.title;
+      const approx = a.latitude != null && a.longitude != null ? { latitude: a.latitude, longitude: a.longitude } : null;
+      const point = await geocoderLieu({ nom, ville, pays, centre, approx });
+      if (point) placees++;
+      const imageUrl = typeAvecPhoto(a.type) ? await imageLieu(nom, ville, point) : null;
+      return {
+        time: a.time,
+        title: a.title,
+        placeName: nom,
+        icon: a.icon,
+        duration: a.duration,
+        cost: Math.max(0, Math.round(a.cost)),
+        type: a.type,
+        note: a.note,
+        isPersonal: a.isPersonal,
+        address: point?.address ?? a.address ?? null,
+        latitude: point?.latitude ?? null,
+        longitude: point?.longitude ?? null,
+        googleMapsUrl: lienGoogleMaps(nom, ville),
+        imageUrl,
+      };
+    }),
+  );
+  return { activites, placees };
+}
+
+function clientAnthropic(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
   if (!apiKey) throw Object.assign(new Error("ANTHROPIC_API_KEY manquante"), { status: 401 });
-  const client = new Anthropic({
+  return new Anthropic({
     apiKey,
     ...(process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL ? { baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL } : {}),
     timeout: 180_000,
     maxRetries: 2,
   });
+}
+
+// Compteur de tokens partagé pendant une génération (une génération à la fois par requête HTTP ; les appels
+// parallèles d'une même génération l'incrémentent, ce qui est le but).
+let cumul = { input: 0, output: 0 };
+
+export async function generateTrip(description: string, options: { onEtape?: (message: string) => void } = {}): Promise<ResultatGeneration> {
+  const client = clientAnthropic();
   const etape = options.onEtape || (() => {});
   const debut = Date.now();
   cumul = { input: 0, output: 0 };
@@ -265,30 +305,9 @@ export async function generateTrip(description: string, options: { onEtape?: (me
     squelette.days.map(async (j, i) => {
       const jour = jours[i];
       const centre = centres.get(j.city) ?? null;
-      const activities = await Promise.all(
-        jour.activities.map(async (a) => {
-          lieux++;
-          const nom = a.placeName?.trim() || a.title;
-          const approx = a.latitude != null && a.longitude != null ? { latitude: a.latitude, longitude: a.longitude } : null;
-          const point = await geocoderLieu({ nom, ville: j.city, pays: squelette.destination, centre, approx });
-          if (point) lieuxGeocodes++;
-          return {
-            time: a.time,
-            title: a.title,
-            placeName: nom,
-            icon: a.icon,
-            duration: a.duration,
-            cost: Math.max(0, Math.round(a.cost)),
-            type: a.type,
-            note: a.note,
-            isPersonal: a.isPersonal,
-            address: point?.address ?? a.address ?? null,
-            latitude: point?.latitude ?? null,
-            longitude: point?.longitude ?? null,
-            googleMapsUrl: lienGoogleMaps(nom, j.city),
-          };
-        }),
-      );
+      const { activites: activities, placees } = await enrichirActivites(jour.activities, j.city, squelette.destination, centre);
+      lieux += jour.activities.length;
+      lieuxGeocodes += placees;
       return {
         dayNumber: j.dayNumber,
         dateLabel: j.dateLabel,
@@ -301,6 +320,10 @@ export async function generateTrip(description: string, options: { onEtape?: (me
       };
     }),
   );
+
+  etape("Photo de couverture");
+  const villePrincipale = squelette.days[0]?.city || squelette.destination;
+  const coverImageUrl = (await imageLieu(villePrincipale, squelette.destination, centres.get(villePrincipale) ?? null)) || (await imageLieu(squelette.destination));
 
   const dureeMs = Date.now() - debut;
   const meta = {
@@ -323,8 +346,55 @@ export async function generateTrip(description: string, options: { onEtape?: (me
     totalBudget: Math.max(0, Math.round(squelette.totalBudget)),
     currency: squelette.currency,
     travelers: squelette.travelers,
+    coverImageUrl,
     days,
     checklist: squelette.checklist,
     meta,
   };
+}
+
+export type ContexteJour = {
+  description: string; // brief d'origine ou résumé du voyage
+  title: string;
+  destination: string;
+  travelers: number;
+  currency: string;
+  jours: Array<{ dayNumber: number; dateLabel: string; city: string; resume: string }>;
+  dayNumber: number;
+  consigne?: string;
+};
+
+/** Régénère une seule journée d'un voyage existant (activités géocodées + photos, conseils, budget). */
+export async function regenererJour(ctx: ContexteJour) {
+  const client = clientAnthropic();
+  cumul = { input: 0, output: 0 };
+  const debut = Date.now();
+  const squelette = {
+    title: ctx.title,
+    subtitle: "",
+    destination: ctx.destination,
+    coverEmoji: "",
+    currency: ctx.currency,
+    travelers: ctx.travelers,
+    totalBudget: 0,
+    days: ctx.jours.map((j) => ({ dayNumber: j.dayNumber, dateLabel: j.dateLabel, city: j.city, color: "", theme: j.resume })),
+    checklist: [],
+  } as Squelette;
+  const jour = squelette.days.find((j) => j.dayNumber === ctx.dayNumber);
+  if (!jour) throw new Error("Jour introuvable dans le voyage");
+  jour.theme = ctx.consigne ? "à redéfinir selon la demande ci-dessous" : "journée à réinventer, différente de la version actuelle : " + jour.theme;
+  const detail = await genererJour(client, ctx.description, squelette, jour, ctx.consigne || "");
+  const centre = await geocoderVille(jour.city, ctx.destination);
+  const { activites, placees } = await enrichirActivites(detail.activities, jour.city, ctx.destination, centre);
+  const meta = {
+    model: MODELE_IA,
+    dureeMs: Date.now() - debut,
+    inputTokens: cumul.input,
+    outputTokens: cumul.output,
+    coutEstimeUsd: Math.round(coutUsd(MODELE_IA, cumul.input, cumul.output) * 1000) / 1000,
+    lieux: activites.length,
+    lieuxGeocodes: placees,
+  };
+  console.log(`[AI Regenerate] jour ${ctx.dayNumber} : ${activites.length} activités (${placees} placées) en ${Math.round(meta.dureeMs / 1000)} s ≈ ${meta.coutEstimeUsd} $`);
+  return { activities: activites, tips: detail.tips, budget: detail.budget, meta };
 }

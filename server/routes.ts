@@ -10,9 +10,10 @@ import { db } from "./db";
 import { trips, days, activities, dayTips, dayBudgets, checklistItems } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { eq, sql, and, ne, desc } from "drizzle-orm";
-import { generateTrip } from "./ai/generate-trip";
+import { generateTrip, regenererJour } from "./ai/generate-trip";
 import { geocoderLieu, geocoderVille, lienGoogleMaps } from "./geocode";
 import { registerStripeRoutes } from "./stripe-routes";
+import { accesVoyage, versionPublique, utilisateurPublic, limite, depasse } from "./securite";
 import { PLAN_LIMITS, type PlanKey } from "./stripe";
 
 async function checkQuota(adminUser: any, userId: string): Promise<{ allowed: boolean; message?: string }> {
@@ -98,27 +99,8 @@ async function isSuperAdmin(req: any, res: any, next: any) {
   return next();
 }
 
-const SUPER_ADMIN_EMAIL = "pavojerome@gmail.com";
-
-async function ensureSuperAdmin() {
-  try {
-    const bcrypt = await import("bcryptjs");
-    const allUsers = await db.select().from(users).where(eq(users.email, SUPER_ADMIN_EMAIL));
-    for (const u of allUsers) {
-      if (u.role !== "super_admin") {
-        await db.update(users).set({ role: "super_admin", isActive: true, maxTrips: -1 }).where(eq(users.id, u.id));
-        console.log(`[init] Promoted ${u.email} (id: ${u.id}) to super_admin`);
-      }
-      if (!u.passwordHash) {
-        const hash = await bcrypt.default.hash("Voyageo2026!", 12);
-        await db.update(users).set({ passwordHash: hash }).where(eq(users.id, u.id));
-        console.log(`[init] Set default password for ${u.email}`);
-      }
-    }
-  } catch (e) {
-    console.log("[init] ensureSuperAdmin error:", e);
-  }
-}
+// Le super admin n'est plus promu automatiquement au démarrage (email et mot de passe par défaut
+// étaient écrits en dur dans un dépôt public). Le rôle se gère directement en base.
 
 export async function registerRoutes(
   httpServer: Server,
@@ -135,8 +117,6 @@ export async function registerRoutes(
   registerObjectStorageRoutes(app);
   registerStripeRoutes(app);
 
-  await ensureSuperAdmin();
-
   // === ADMIN CHECK ===
 
   app.get("/api/admin/check", isAuthenticated, async (req, res) => {
@@ -145,36 +125,6 @@ export async function registerRoutes(
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     const allowed = user && user.isActive && (user.role === "super_admin" || user.role === "admin");
     res.json({ isAdmin: !!allowed, role: user?.role || null });
-  });
-
-  app.get("/api/debug/auth-state", async (req: any, res) => {
-    const isAuth = req.isAuthenticated ? req.isAuthenticated() : false;
-    const claims = req.user?.claims || null;
-    const userId = claims?.sub || null;
-    let dbUser = null;
-    let dbError = null;
-    if (userId) {
-      try {
-        const userIdStr = String(userId);
-        const [found] = await db.select().from(users).where(eq(users.id, userIdStr));
-        if (found) {
-          dbUser = { id: found.id, email: found.email, role: found.role, isActive: found.isActive };
-        }
-      } catch (e: any) {
-        dbError = e.message;
-      }
-    }
-    res.json({
-      isAuthenticated: isAuth,
-      userId: userId,
-      userIdType: typeof userId,
-      hasSession: !!req.session,
-      sessionID: req.sessionID ? req.sessionID.substring(0, 8) + "..." : null,
-      hasClaims: !!claims,
-      email: claims?.email || null,
-      dbUser,
-      dbError,
-    });
   });
 
   // === SUPER ADMIN ROUTES ===
@@ -189,7 +139,7 @@ export async function registerRoutes(
           .select({ count: sql<number>`count(*)::int` })
           .from(trips)
           .where(eq(trips.userId, admin.id));
-        return { ...admin, currentTripsCount: countResult?.count ?? 0 };
+        return { ...utilisateurPublic(admin), currentTripsCount: countResult?.count ?? 0 };
       })
     );
     res.json(adminsWithStats);
@@ -225,7 +175,7 @@ export async function registerRoutes(
       accessToken,
     }).returning();
 
-    res.status(201).json({ ...newAdmin, currentTripsCount: 0 });
+    res.status(201).json({ ...utilisateurPublic(newAdmin), currentTripsCount: 0 });
   });
 
   app.put("/api/super-admin/admins/:id", isSuperAdmin, async (req, res) => {
@@ -252,7 +202,7 @@ export async function registerRoutes(
 
     const [updated] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
     const [countResult] = await db.select({ count: sql<number>`count(*)::int` }).from(trips).where(eq(trips.userId, id));
-    res.json({ ...updated, currentTripsCount: countResult?.count ?? 0 });
+    res.json({ ...utilisateurPublic(updated), currentTripsCount: countResult?.count ?? 0 });
   });
 
   app.post("/api/super-admin/admins/:id/regenerate-token", isSuperAdmin, async (req, res) => {
@@ -263,7 +213,7 @@ export async function registerRoutes(
 
     const accessToken = randomUUID();
     const [updated] = await db.update(users).set({ accessToken, updatedAt: new Date() }).where(eq(users.id, id)).returning();
-    res.json(updated);
+    res.json(utilisateurPublic(updated));
   });
 
   app.delete("/api/super-admin/admins/:id", isSuperAdmin, async (req, res) => {
@@ -575,17 +525,9 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.get(api.trips.get.path, isAuthenticated, async (req, res) => {
-    const tripId = Number(req.params.id);
-    const trip = await storage.getTrip(tripId);
+  app.get(api.trips.get.path, accesVoyage("trip", "id", "consulter"), async (req: any, res) => {
+    const trip = await storage.getTrip(req.tripId);
     if (!trip) return res.status(404).json({ message: "Voyage introuvable" });
-
-    const userId = (req.user as any).claims.sub;
-    const email = (req.user as any).claims.email;
-    const assignedEmails = (trip.assignedToEmail || "").split(",").map((e: string) => e.trim().toLowerCase()).filter(Boolean);
-    if (trip.userId !== userId && !assignedEmails.includes(email?.toLowerCase() || "")) {
-      return res.status(401).json({ message: "Accès non autorisé" });
-    }
     res.json(trip);
   });
 
@@ -593,12 +535,14 @@ export async function registerRoutes(
     const token = req.params.token;
     const trip = await storage.getTripByToken(token);
     if (!trip) return res.status(404).json({ message: "Voyage introuvable" });
-    res.json(trip);
+    res.json(versionPublique(trip));
   });
 
-  app.post(api.trips.create.path, isAuthenticated, async (req, res) => {
+  app.post(api.trips.create.path, isAdmin, async (req: any, res) => {
     try {
-      const userId = (req.user as any).claims.sub;
+      const userId = req.adminUser.id;
+      const quota = await checkQuota(req.adminUser, userId);
+      if (!quota.allowed) return res.status(403).json({ message: quota.message, upgradeUrl: "/pricing" });
       const input = api.trips.create.input.parse(req.body);
       const shareToken = randomBytes(16).toString("hex");
       const trip = await storage.createTrip({ ...input, userId, shareToken });
@@ -611,42 +555,46 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.trips.update.path, isAuthenticated, async (req, res) => {
-    const tripId = Number(req.params.id);
-    const input = api.trips.update.input.parse(req.body);
+  app.put(api.trips.update.path, accesVoyage("trip", "id"), async (req: any, res) => {
+    const tripId = req.tripId;
+    const input: any = api.trips.update.input.parse(req.body);
+    delete input.userId;
+    delete input.shareToken;
+    delete input.id;
     const updated = await storage.updateTrip(tripId, input);
     res.json(updated);
   });
 
-  app.delete(api.trips.delete.path, isAuthenticated, async (req, res) => {
-    const tripId = Number(req.params.id);
+  app.delete(api.trips.delete.path, accesVoyage("trip", "id"), async (req: any, res) => {
+    const tripId = req.tripId;
     await storage.deleteTrip(tripId);
     res.status(204).send();
   });
 
   // === DAYS ===
 
-  app.post(api.days.create.path, isAuthenticated, async (req, res) => {
-    const tripId = Number(req.params.tripId);
+  app.post(api.days.create.path, accesVoyage("trip", "tripId"), async (req: any, res) => {
+    const tripId = req.tripId;
     const input = api.days.create.input.parse(req.body);
     const day = await storage.createDay({ ...input, tripId });
     res.status(201).json(day);
   });
 
-  app.put(api.days.update.path, isAdmin, async (req, res) => {
+  app.put(api.days.update.path, accesVoyage("day", "id"), async (req: any, res) => {
     const id = Number(req.params.id);
-    const input = api.days.update.input.parse(req.body);
+    const input: any = api.days.update.input.parse(req.body);
+    delete input.tripId; // un jour ne change pas de voyage
     const day = await storage.updateDay(id, input);
     res.json(day);
   });
 
-  app.delete("/api/admin/days/:id", isAdmin, async (req, res) => {
+  app.delete("/api/admin/days/:id", accesVoyage("day", "id"), async (req, res) => {
     const id = Number(req.params.id);
     await storage.deleteDay(id);
     res.status(204).send();
   });
 
-  app.put("/api/admin/days/:dayId/budget", isAdmin, async (req, res) => {
+  app.put("/api/admin/days/:dayId/budget", accesVoyage("day", "dayId"), async (req, res) => {
     const dayId = Number(req.params.dayId);
     const { hotel, food, transport, activities, other } = req.body;
     const updates: any = {};
@@ -705,7 +653,7 @@ export async function registerRoutes(
     }
   }
 
-  app.post(api.activities.create.path, isAuthenticated, async (req, res) => {
+  app.post(api.activities.create.path, accesVoyage("day", "dayId"), async (req, res) => {
     const dayId = Number(req.params.dayId);
     const input = api.activities.create.input.parse(sanitizeActivityBody(req.body));
     const activity = await storage.createActivity({ ...input, dayId });
@@ -713,15 +661,16 @@ export async function registerRoutes(
     res.status(201).json(activity);
   });
 
-  app.put(api.activities.update.path, isAdmin, async (req, res) => {
+  app.put(api.activities.update.path, accesVoyage("activity", "id"), async (req, res) => {
     const id = Number(req.params.id);
-    const input = api.activities.update.input.parse(sanitizeActivityBody(req.body));
+    const input: any = api.activities.update.input.parse(sanitizeActivityBody(req.body));
+    delete input.dayId; // une activité ne change pas de voyage par cette route
     const activity = await storage.updateActivity(id, input);
     if (activity.latitude == null || activity.longitude == null) void geocoderActiviteEnArrierePlan(activity.id);
     res.json(activity);
   });
 
-  app.delete(api.activities.delete.path, isAdmin, async (req, res) => {
+  app.delete(api.activities.delete.path, accesVoyage("activity", "id"), async (req, res) => {
     const id = Number(req.params.id);
     await storage.deleteActivity(id);
     res.status(204).send();
@@ -729,14 +678,14 @@ export async function registerRoutes(
 
   // === TIPS ===
 
-  app.post("/api/admin/days/:dayId/tips", isAdmin, async (req, res) => {
+  app.post("/api/admin/days/:dayId/tips", accesVoyage("day", "dayId"), async (req, res) => {
     const dayId = Number(req.params.dayId);
     const { content, sortOrder } = req.body;
     const tip = await storage.createDayTip({ dayId, content, sortOrder: sortOrder || 0 });
     res.status(201).json(tip);
   });
 
-  app.put("/api/admin/tips/:id", isAdmin, async (req, res) => {
+  app.put("/api/admin/tips/:id", accesVoyage("tip", "id"), async (req, res) => {
     const id = Number(req.params.id);
     const { content } = req.body;
     if (!content) return res.status(400).json({ message: "Contenu requis" });
@@ -744,7 +693,7 @@ export async function registerRoutes(
     res.json(tip);
   });
 
-  app.delete("/api/admin/tips/:id", isAdmin, async (req, res) => {
+  app.delete("/api/admin/tips/:id", accesVoyage("tip", "id"), async (req, res) => {
     const id = Number(req.params.id);
     await storage.deleteDayTip(id);
     res.status(204).send();
@@ -752,20 +701,20 @@ export async function registerRoutes(
 
   // === CHECKLIST ===
 
-  app.get(api.checklist.list.path, isAuthenticated, async (req, res) => {
+  app.get(api.checklist.list.path, accesVoyage("trip", "tripId", "consulter"), async (req, res) => {
     const tripId = Number(req.params.tripId);
     const items = await storage.getChecklist(tripId);
     res.json(items);
   });
 
-  app.post(api.checklist.create.path, isAuthenticated, async (req, res) => {
+  app.post(api.checklist.create.path, accesVoyage("trip", "tripId"), async (req, res) => {
     const tripId = Number(req.params.tripId);
     const input = api.checklist.create.input.parse(req.body);
     const item = await storage.createChecklistItem({ ...input, tripId });
     res.status(201).json(item);
   });
 
-  app.put("/api/admin/checklist/:id", isAdmin, async (req, res) => {
+  app.put("/api/admin/checklist/:id", accesVoyage("checklist", "id"), async (req, res) => {
     const id = Number(req.params.id);
     const { text, category, isCritical, phase, subcategory, hint, link } = req.body;
     const updates: any = {};
@@ -780,19 +729,22 @@ export async function registerRoutes(
     res.json(item);
   });
 
-  app.post("/api/admin/trips/:tripId/checklist/bulk", isAdmin, async (req, res) => {
-    const tripId = Number(req.params.tripId);
+  app.post("/api/admin/trips/:tripId/checklist/bulk", accesVoyage("trip", "tripId"), async (req: any, res) => {
+    const tripId = req.tripId;
     const { items } = req.body;
     if (!Array.isArray(items)) return res.status(400).json({ message: "items must be an array" });
+    if (items.length > 200) return res.status(400).json({ message: "200 éléments maximum" });
     const created = [];
     for (const item of items) {
-      const newItem = await storage.createChecklistItem({ ...item, tripId });
+      const { text, category, isCritical, phase, subcategory, hint, link, sortOrder } = item || {};
+      if (!text) continue;
+      const newItem = await storage.createChecklistItem({ text, category, isCritical, phase, subcategory, hint, link, sortOrder, tripId } as any);
       created.push(newItem);
     }
     res.status(201).json(created);
   });
 
-  app.delete("/api/admin/checklist/:id", isAdmin, async (req, res) => {
+  app.delete("/api/admin/checklist/:id", accesVoyage("checklist", "id"), async (req, res) => {
     const id = Number(req.params.id);
     await storage.deleteChecklistItem(id);
     res.status(204).send();
@@ -800,14 +752,14 @@ export async function registerRoutes(
 
   // === DOCUMENTS ===
 
-  app.get("/api/trips/:tripId/documents", isAuthenticated, async (req, res) => {
-    const tripId = Number(req.params.tripId);
+  app.get("/api/trips/:tripId/documents", accesVoyage("trip", "tripId", "consulter"), async (req: any, res) => {
+    const tripId = req.tripId;
     const docs = await storage.getDocuments(tripId);
     res.json(docs);
   });
 
-  app.post("/api/admin/trips/:tripId/documents", isAdmin, async (req, res) => {
-    const tripId = Number(req.params.tripId);
+  app.post("/api/admin/trips/:tripId/documents", accesVoyage("trip", "tripId"), async (req: any, res) => {
+    const tripId = req.tripId;
     const { name, type, url, note, sortOrder } = req.body;
     if (!name || !type || !url) {
       return res.status(400).json({ message: "name, type et url sont requis" });
@@ -816,22 +768,28 @@ export async function registerRoutes(
     res.status(201).json(doc);
   });
 
-  app.patch("/api/admin/documents/:id", isAdmin, async (req, res) => {
+  app.patch("/api/admin/documents/:id", accesVoyage("document", "id"), async (req, res) => {
     const id = Number(req.params.id);
-    const updates = req.body;
+    const { name, type, url, note, sortOrder } = req.body || {};
+    const updates: any = {};
+    if (name !== undefined) updates.name = name;
+    if (type !== undefined) updates.type = type;
+    if (url !== undefined) updates.url = url;
+    if (note !== undefined) updates.note = note;
+    if (sortOrder !== undefined) updates.sortOrder = sortOrder;
     const doc = await storage.updateDocument(id, updates);
     res.json(doc);
   });
 
-  app.delete("/api/admin/documents/:id", isAdmin, async (req, res) => {
+  app.delete("/api/admin/documents/:id", accesVoyage("document", "id"), async (req, res) => {
     const id = Number(req.params.id);
     await storage.deleteDocument(id);
     res.status(204).send();
   });
 
-  app.post(api.checklist.check.path, isAuthenticated, async (req, res) => {
+  app.post(api.checklist.check.path, accesVoyage("checklist", "itemId", "consulter"), async (req: any, res) => {
     const itemId = Number(req.params.itemId);
-    const userId = (req.user as any).claims.sub;
+    const userId = req.adminUser.id;
     const { checked } = api.checklist.check.input.parse(req.body);
     const check = await storage.checkItem(itemId, userId, checked);
     res.json(check);
@@ -839,34 +797,31 @@ export async function registerRoutes(
 
   // === EXPENSES ===
 
-  app.get(api.expenses.list.path, isAuthenticated, async (req, res) => {
-    const tripId = Number(req.params.tripId);
+  app.get(api.expenses.list.path, accesVoyage("trip", "tripId", "consulter"), async (req: any, res) => {
+    const tripId = req.tripId;
     const items = await storage.getExpenses(tripId);
     res.json(items);
   });
 
-  app.post(api.expenses.create.path, isAuthenticated, async (req, res) => {
-    const tripId = Number(req.params.tripId);
-    const userId = (req.user as any).claims.sub;
+  app.post(api.expenses.create.path, accesVoyage("trip", "tripId", "consulter"), async (req: any, res) => {
+    const tripId = req.tripId;
+    const userId = req.adminUser.id;
     const input = api.expenses.create.input.parse(req.body);
     const item = await storage.createExpense({ ...input, tripId, userId });
     res.status(201).json(item);
   });
 
-  app.delete(api.expenses.delete.path, isAuthenticated, async (req, res) => {
+  app.delete(api.expenses.delete.path, accesVoyage("expense", "id", "consulter"), async (req: any, res) => {
     const id = Number(req.params.id);
     const expense = await storage.getExpense(id);
     if (!expense) {
       return res.status(404).json({ message: "Dépense introuvable" });
     }
-    const userEmail = (req.user as any)?.claims?.email?.toLowerCase();
-    const userId = (req.user as any)?.claims?.sub;
-    if (expense.userId !== userId) {
-      const trip = await storage.getTrip(expense.tripId);
-      const tripEmails = (trip?.assignedToEmail || "").split(",").map((e: string) => e.trim().toLowerCase()).filter(Boolean);
-      if (!trip || !tripEmails.includes(userEmail || "")) {
-        return res.status(403).json({ message: "Accès refusé" });
-      }
+    // Le voyageur ne supprime que ses propres dépenses ; le propriétaire du voyage les gère toutes.
+    const [trip] = await db.select({ userId: trips.userId }).from(trips).where(eq(trips.id, expense.tripId));
+    const estProprietaire = req.adminUser.role === "super_admin" || trip?.userId === req.adminUser.id;
+    if (expense.userId !== req.adminUser.id && !estProprietaire) {
+      return res.status(403).json({ message: "Accès refusé" });
     }
     await storage.deleteExpense(id);
     res.status(204).send();
@@ -874,9 +829,22 @@ export async function registerRoutes(
 
   // === WEATHER ===
 
-  app.get("/api/weather", async (req, res) => {
-    const city = req.query.city as string;
+  const cacheMeteo = new Map<string, { fin: number; data: any }>();
+
+  app.get("/api/weather", limite("meteo", 60, 10 * 60 * 1000), async (req, res) => {
+    const city = typeof req.query.city === "string" ? req.query.city.trim().slice(0, 80) : "";
     if (!city) return res.status(400).json({ message: "Ville requise" });
+    const cleCache = city.toLowerCase();
+    const enCache = cacheMeteo.get(cleCache);
+    if (enCache && enCache.fin > Date.now()) return res.json(enCache.data);
+    const jsonOriginal = res.json.bind(res);
+    (res as any).json = (data: any) => {
+      if (res.statusCode === 200) {
+        if (cacheMeteo.size > 500) cacheMeteo.clear();
+        cacheMeteo.set(cleCache, { fin: Date.now() + 30 * 60 * 1000, data });
+      }
+      return jsonOriginal(data);
+    };
 
     const apiKey = process.env.METEOBLUE_API_KEY;
     if (!apiKey) {
@@ -945,6 +913,8 @@ export async function registerRoutes(
   // Pipeline en plusieurs appels courts (squelette, journées en parallèle, géocodage des lieux) :
   // voir server/ai/generate-trip.ts. Le JSON renvoyé garde la forme attendue par create-from-ai.
 
+  const generationsEnCours = new Set<string>();
+
   app.post("/api/admin/generate-trip", isAdmin, async (req: any, res) => {
     const { description } = req.body;
     if (!description || typeof description !== "string" || !description.trim()) {
@@ -966,6 +936,16 @@ export async function registerRoutes(
         }
       }
     }
+
+    const uid = req.adminUser.id;
+    if (generationsEnCours.has(uid)) {
+      return res.status(429).json({ message: "Une génération est déjà en cours. Patientez qu'elle se termine." });
+    }
+    if (req.adminUser.role !== "super_admin" && depasse("ia:" + uid, 20, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ message: "Limite de 20 générations par 24 h atteinte. Réessayez demain." });
+    }
+    generationsEnCours.add(uid);
+    res.on("close", () => generationsEnCours.delete(uid));
 
     try {
       console.log("[AI Generate] Starting generation for description:", description.slice(0, 100));
@@ -1003,6 +983,92 @@ export async function registerRoutes(
     }
   });
 
+  // Régénère une seule journée d'un voyage existant : remplace ses activités, conseils et budget.
+  app.post("/api/admin/days/:id/regenerate", accesVoyage("day", "id"), async (req: any, res) => {
+    const user = req.adminUser;
+    if (user.role !== "super_admin") {
+      const plan = (user.plan || "free") as PlanKey;
+      const autorise = user.hasAiAccess || (!user.createdBy && (PLAN_LIMITS[plan] || PLAN_LIMITS.free).hasAI);
+      if (!autorise) return res.status(403).json({ message: "La génération IA n'est pas incluse dans votre plan.", upgradeUrl: "/pricing" });
+    }
+    if (generationsEnCours.has(user.id)) {
+      return res.status(429).json({ message: "Une génération est déjà en cours. Patientez qu'elle se termine." });
+    }
+    if (user.role !== "super_admin" && depasse("ia:" + user.id, 20, 24 * 60 * 60 * 1000)) {
+      return res.status(429).json({ message: "Limite de 20 générations par 24 h atteinte. Réessayez demain." });
+    }
+    const consigne = typeof req.body?.consigne === "string" ? req.body.consigne.trim().slice(0, 500) : "";
+    generationsEnCours.add(user.id);
+    try {
+      const dayId = Number(req.params.id);
+      const trip = await storage.getTrip(req.tripId);
+      if (!trip) return res.status(404).json({ message: "Voyage introuvable" });
+      const cible = trip.days.find((d: any) => d.id === dayId);
+      if (!cible) return res.status(404).json({ message: "Jour introuvable" });
+
+      const resultat = await regenererJour({
+        description: [trip.title, trip.subtitle, trip.welcomeText].filter(Boolean).join(". "),
+        title: trip.title,
+        destination: trip.destination || cible.city,
+        travelers: trip.travelers || 2,
+        currency: trip.currency || "€",
+        jours: trip.days.map((d: any) => ({
+          dayNumber: d.dayNumber,
+          dateLabel: d.dateLabel,
+          city: d.city,
+          resume: (d.activities || []).map((a: any) => a.title).slice(0, 6).join(", ") || d.city,
+        })),
+        dayNumber: cible.dayNumber,
+        consigne,
+      });
+
+      await db.transaction(async (tx) => {
+        await tx.delete(activities).where(eq(activities.dayId, dayId));
+        await tx.delete(dayTips).where(eq(dayTips.dayId, dayId));
+        if (resultat.activities.length) {
+          await tx.insert(activities).values(resultat.activities.map((a, idx) => ({
+            dayId,
+            time: String(a.time).slice(0, 10),
+            title: String(a.title).slice(0, 200),
+            icon: String(a.icon || "activity").slice(0, 30),
+            duration: a.duration ? String(a.duration).slice(0, 20) : null,
+            cost: String(Math.max(0, Number(a.cost) || 0)),
+            type: a.type,
+            note: a.note ? String(a.note).slice(0, 500) : null,
+            isPersonal: Boolean(a.isPersonal),
+            address: a.address ? String(a.address).slice(0, 300) : null,
+            latitude: coordonnee(a.latitude),
+            longitude: coordonnee(a.longitude),
+            googleMapsUrl: a.googleMapsUrl,
+            imageUrl: a.imageUrl,
+            sortOrder: idx + 1,
+          })));
+        }
+        if (resultat.tips.length) {
+          await tx.insert(dayTips).values(resultat.tips.filter(Boolean).map((content, idx) => ({ dayId, content: String(content).slice(0, 500), sortOrder: idx + 1 })));
+        }
+        const b = resultat.budget;
+        const valeurs = {
+          hotel: String(Math.max(0, Math.round(b.hotel))),
+          food: String(Math.max(0, Math.round(b.food))),
+          transport: String(Math.max(0, Math.round(b.transport))),
+          activities: String(Math.max(0, Math.round(b.activities))),
+          other: String(Math.max(0, Math.round(b.other))),
+        };
+        const [existant] = await tx.select({ id: dayBudgets.id }).from(dayBudgets).where(eq(dayBudgets.dayId, dayId));
+        if (existant) await tx.update(dayBudgets).set(valeurs).where(eq(dayBudgets.dayId, dayId));
+        else await tx.insert(dayBudgets).values({ dayId, ...valeurs });
+      });
+
+      res.json({ trip: await storage.getTrip(req.tripId), meta: resultat.meta });
+    } catch (err: any) {
+      console.error("[AI Regenerate] erreur :", err?.status, err?.message);
+      res.status(500).json({ message: err?.status === 429 || err?.status === 529 ? "Le service IA est surchargé, réessayez dans un instant." : "La régénération a échoué. Réessayez." });
+    } finally {
+      generationsEnCours.delete(user.id);
+    }
+  });
+
   // Coordonnée numérique valide ou null (les formulaires envoient parfois "" ou undefined)
   const coordonnee = (v: unknown): number | null =>
     v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v);
@@ -1034,6 +1100,7 @@ export async function registerRoutes(
           totalBudget: Math.max(0, Math.round(Number(tripData.totalBudget) || 0)),
           currency: String(tripData.currency || "€").slice(0, 5),
           travelers: Math.max(1, Math.round(Number(tripData.travelers) || 2)),
+          coverImageUrl: typeof tripData.coverImageUrl === "string" && /^https:\/\//.test(tripData.coverImageUrl) ? tripData.coverImageUrl.slice(0, 500) : null,
           status: "draft",
           shareToken,
         }).returning();
@@ -1066,6 +1133,7 @@ export async function registerRoutes(
                 latitude: coordonnee(act.latitude),
                 longitude: coordonnee(act.longitude),
                 googleMapsUrl: act.googleMapsUrl ? String(act.googleMapsUrl).slice(0, 500) : null,
+                imageUrl: typeof act.imageUrl === "string" && /^https:\/\//.test(act.imageUrl) ? act.imageUrl.slice(0, 500) : null,
                 sortOrder: idx + 1,
               }));
             if (actValues.length > 0) {

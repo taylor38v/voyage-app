@@ -40,8 +40,8 @@ export function registerStripeRoutes(app: Express) {
         payment_method_types: ["card"],
         line_items: [{ price: priceId, quantity: 1 }],
         mode: "subscription",
-        success_url: `${req.headers.origin}/admin?payment=success`,
-        cancel_url: `${req.headers.origin}/pricing?payment=canceled`,
+        success_url: `${(process.env.APP_URL || "https://voyageo-0uv7.onrender.com").replace(/\/$/, "")}/admin?payment=success`,
+        cancel_url: `${(process.env.APP_URL || "https://voyageo-0uv7.onrender.com").replace(/\/$/, "")}/pricing?payment=canceled`,
         metadata: { userId: user.id },
         allow_promotion_codes: true,
         billing_address_collection: "auto",
@@ -66,7 +66,7 @@ export function registerStripeRoutes(app: Express) {
 
       const session = await stripeClient.billingPortal.sessions.create({
         customer: user.stripeCustomerId,
-        return_url: `${req.headers.origin}/admin`,
+        return_url: `${(process.env.APP_URL || "https://voyageo-0uv7.onrender.com").replace(/\/$/, "")}/admin`,
       });
 
       res.json({ url: session.url });

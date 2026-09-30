@@ -718,6 +718,26 @@ function DayItem({ day, tripId, expanded, onToggle }: { day: any, tripId: number
     },
   });
 
+  const regenerateDay = useMutation({
+    mutationFn: async (consigne: string) => {
+      const res = await fetch(`/api/admin/days/${day.id}/regenerate`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ consigne }), credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || "La régénération a échoué");
+      return data;
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/trips", tripId] });
+      const m = data?.meta;
+      toast({ title: "Jour régénéré", description: m ? `${m.lieux} activités, ${m.lieuxGeocodes} placées sur la carte` : undefined });
+    },
+    onError: (err: any) => {
+      toast({ title: "Régénération impossible", description: err.message, variant: "destructive" });
+    },
+  });
+
   const updateDayHeader = useMutation({
     mutationFn: async (data: any) => {
       const res = await fetch(`/api/days/${day.id}`, {
@@ -843,6 +863,23 @@ function DayItem({ day, tripId, expanded, onToggle }: { day: any, tripId: number
         </button>
         <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setEditingDayHeader(!editingDayHeader); }} data-testid={`admin-edit-day-${day.id}`}>
           <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          title="Régénérer ce jour avec l'IA"
+          disabled={regenerateDay.isPending}
+          onClick={(e) => {
+            e.stopPropagation();
+            const consigne = window.prompt(
+              "Régénérer ce jour avec l'IA : les activités, conseils et budget du jour seront remplacés.\n\nConsigne facultative (ex. « plus de nature », « éviter les musées ») :",
+              "",
+            );
+            if (consigne !== null) regenerateDay.mutate(consigne);
+          }}
+          data-testid={`admin-regenerate-day-${day.id}`}
+        >
+          {regenerateDay.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" /> : <Wand2 className="w-3.5 h-3.5 text-muted-foreground" />}
         </Button>
         <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); if (confirm("Supprimer ce jour ?")) deleteDay.mutate(); }} data-testid={`admin-delete-day-${day.id}`}>
           <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
