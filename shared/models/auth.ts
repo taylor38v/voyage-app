@@ -39,6 +39,8 @@ export const users = pgTable("users", {
   planExpiresAt: timestamp("plan_expires_at"),
   trialEndsAt: timestamp("trial_ends_at"),
   hasAiAccess: boolean("has_ai_access").default(false),
+  // Marque du travel planner (carnet PDF, page voyageur) : voir server/marque.ts
+  branding: jsonb("branding").$type<Record<string, string>>(),
   resetToken: varchar("reset_token"),
   resetTokenExpiresAt: timestamp("reset_token_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),

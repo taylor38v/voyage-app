@@ -1,6 +1,6 @@
 import { useTripByToken } from "@/hooks/use-trips";
 import { useRoute } from "wouter";
-import { Loader2, Calendar, MapPin, Lightbulb, Flame, BarChart3, CheckSquare, Clock, Moon, Sun, Check, Download, Home, Map as MapIcon, Users, Wallet, Plane, Hotel, UtensilsCrossed, ShoppingBag, Bus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Zap, PartyPopper, Camera, Sparkles, ExternalLink, Navigation, Info, Phone, Globe, Banknote, Plug, Wifi, ArrowRightLeft, Shield, FileText, Copy, Hash, Star, Link2 } from "lucide-react";
+import { Loader2, Calendar, MapPin, Lightbulb, Flame, BarChart3, CheckSquare, Clock, Moon, Sun, Check, Download, Home, Map as MapIcon, Users, Wallet, Plane, Hotel, UtensilsCrossed, ShoppingBag, Bus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Zap, PartyPopper, Camera, Sparkles, ExternalLink, Navigation, Info, Phone, Globe, Banknote, Plug, Wifi, ArrowRightLeft, Shield, FileText, Copy, Hash, Star, Link2, Mail } from "lucide-react";
 import { SiWhatsapp } from "react-icons/si";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -283,6 +283,48 @@ function ClientAccueil({ trip }: { trip: any }) {
       )}
 
       <CountdownCard departureDate={trip.departureDate} />
+
+      {trip.organisateur?.nom && (() => {
+        const org = trip.organisateur;
+        const couleur = /^#[0-9a-f]{6}$/i.test(org.couleur || "") ? org.couleur : undefined;
+        const liens = [
+          org.whatsapp && { href: `https://wa.me/${String(org.whatsapp).replace(/[^\d]/g, "")}`, label: "WhatsApp", icon: Phone },
+          org.telephone && { href: `tel:${String(org.telephone).replace(/[^\d+]/g, "")}`, label: "Appeler", icon: Phone },
+          org.email && { href: `mailto:${org.email}`, label: "Email", icon: Mail },
+          org.siteWeb && { href: org.siteWeb, label: "Site", icon: Globe },
+        ].filter(Boolean) as Array<{ href: string; label: string; icon: any }>;
+        return (
+          <Card className="p-4 overflow-hidden relative" data-testid="card-organisateur">
+            {couleur && <div className="absolute inset-x-0 top-0 h-1" style={{ background: couleur }} />}
+            <div className="flex items-center gap-3">
+              {org.logo ? (
+                <div className="h-11 w-16 rounded-lg bg-white flex items-center justify-center p-1 shrink-0">
+                  <img src={org.logo} alt={org.nom} className="max-h-full max-w-full object-contain" />
+                </div>
+              ) : (
+                <div className="h-11 w-11 rounded-full flex items-center justify-center text-white font-bold shrink-0" style={{ background: couleur || "hsl(var(--primary))" }}>
+                  {String(org.nom).slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Votre travel planner</p>
+                <p className="font-semibold text-foreground truncate">{org.nom}</p>
+                {org.signature && <p className="text-xs text-muted-foreground line-clamp-2">{org.signature}</p>}
+              </div>
+            </div>
+            {liens.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {liens.map((l) => (
+                  <a key={l.label} href={l.href} target={l.href.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted">
+                    <l.icon className="w-3.5 h-3.5" /> {l.label}
+                  </a>
+                ))}
+              </div>
+            )}
+          </Card>
+        );
+      })()}
 
       {lieuxEnPhoto.length > 0 && (
         <Card className="p-4" data-testid="card-highlights">
@@ -1543,6 +1585,13 @@ export default function ClientView() {
   const token = params?.token || "";
   const { data: trip, isLoading } = useTripByToken(token);
   const [tab, setTab] = useState("accueil");
+  const [horsLigne, setHorsLigne] = useState(typeof navigator !== "undefined" && !navigator.onLine);
+  useEffect(() => {
+    const maj = () => setHorsLigne(!navigator.onLine);
+    window.addEventListener("online", maj);
+    window.addEventListener("offline", maj);
+    return () => { window.removeEventListener("online", maj); window.removeEventListener("offline", maj); };
+  }, []);
   const { theme, toggleTheme } = useTheme();
 
   if (isLoading) {
@@ -1585,8 +1634,16 @@ export default function ClientView() {
               {trip.welcomeText && (
                 <p className="text-xs text-primary/80 mt-1" data-testid="text-header-greeting">{trip.welcomeText}</p>
               )}
+              {(trip as any).organisateur?.nom && (
+                <p className="text-[11px] text-muted-foreground mt-0.5" data-testid="text-header-organisateur">Préparé par {(trip as any).organisateur.nom}</p>
+              )}
             </div>
             <div className="flex items-center gap-1">
+              <a href={`/share/${token}/imprimer?auto=1`} title="Carnet PDF à imprimer ou garder hors ligne">
+                <Button variant="ghost" size="icon" data-testid="button-client-pdf">
+                  <FileText className="w-4 h-4" />
+                </Button>
+              </a>
               {trip.guideUrl && (
                 <a href={trip.guideUrl} target="_blank" rel="noopener noreferrer">
                   <Button variant="ghost" size="icon" data-testid="button-client-download-guide">
@@ -1600,6 +1657,13 @@ export default function ClientView() {
             </div>
           </div>
         </div>
+
+        {((trip as any)._horsLigne || horsLigne) && (
+          <div className="mx-4 mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200" data-testid="banner-offline">
+            Hors ligne : vous consultez la copie enregistrée sur cet appareil
+            {(trip as any)._copieDu ? ` le ${new Date((trip as any)._copieDu).toLocaleDateString("fr-FR")}` : ""}. La météo et les zones de carte jamais affichées ne sont pas disponibles.
+          </div>
+        )}
 
         <div className="px-4 py-4">
           {tab === "accueil" && <ClientAccueil trip={trip} />}

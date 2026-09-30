@@ -17,6 +17,7 @@ import {
   Calendar, Shield, Wand2, Users, Crown, AlertCircle
 } from "lucide-react";
 import { Link } from "wouter";
+import { MarqueCard } from "@/components/marque-card";
 
 const profileSchema = z.object({
   firstName: z.string().min(1, "Le prénom est requis"),
@@ -201,6 +202,8 @@ export default function AccountPage() {
             </form>
           </Form>
         </Card>
+
+        <MarqueCard planAgence={isSuperAdmin || plan === "agency"} />
 
         <Card className="p-6 space-y-5" data-testid="card-password">
           <div className="flex items-center gap-3 mb-2">

@@ -9,6 +9,7 @@ import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import TripDetails from "@/pages/trip-details";
 import ClientView from "@/pages/client-view";
+import TripPrint from "@/pages/trip-print";
 import AdminPage from "@/pages/admin";
 import Pricing from "@/pages/pricing";
 import Login from "@/pages/login";
@@ -33,6 +34,7 @@ function Router() {
 
   return (
     <Switch>
+      <Route path="/share/:token/imprimer" component={TripPrint} />
       <Route path="/share/:token" component={ClientView} />
       <Route path="/pricing" component={Pricing} />
       <Route path="/login" component={Login} />

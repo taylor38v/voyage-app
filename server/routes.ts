@@ -14,6 +14,7 @@ import { generateTrip, regenererJour } from "./ai/generate-trip";
 import { geocoderLieu, geocoderVille, lienGoogleMaps } from "./geocode";
 import { registerStripeRoutes } from "./stripe-routes";
 import { accesVoyage, versionPublique, utilisateurPublic, limite, depasse } from "./securite";
+import { nettoyerMarque, marquePublique } from "./marque";
 import { PLAN_LIMITS, type PlanKey } from "./stripe";
 
 async function checkQuota(adminUser: any, userId: string): Promise<{ allowed: boolean; message?: string }> {
@@ -516,6 +517,23 @@ export async function registerRoutes(
     res.json(updated);
   });
 
+  // === MARQUE DU TRAVEL PLANNER ===
+
+  app.get("/api/account/branding", isAdmin, async (req: any, res) => {
+    const u = req.adminUser;
+    res.json({ marque: u.branding || {}, apercu: marquePublique(u) });
+  });
+
+  app.put("/api/account/branding", isAdmin, async (req: any, res) => {
+    try {
+      const marque = nettoyerMarque(req.body || {});
+      const [maj] = await db.update(users).set({ branding: marque, updatedAt: new Date() }).where(eq(users.id, req.adminUser.id)).returning();
+      res.json({ marque: maj.branding || {}, apercu: marquePublique(maj) });
+    } catch (e: any) {
+      res.status(e?.status || 500).json({ message: e?.status ? e.message : "Erreur lors de l'enregistrement" });
+    }
+  });
+
   // === TRIPS ===
 
   app.get(api.trips.list.path, isAuthenticated, async (req, res) => {
@@ -535,7 +553,8 @@ export async function registerRoutes(
     const token = req.params.token;
     const trip = await storage.getTripByToken(token);
     if (!trip) return res.status(404).json({ message: "Voyage introuvable" });
-    res.json(versionPublique(trip));
+    const [proprietaire] = trip.userId ? await db.select().from(users).where(eq(users.id, trip.userId)) : [];
+    res.json({ ...versionPublique(trip), organisateur: marquePublique(proprietaire) });
   });
 
   app.post(api.trips.create.path, isAdmin, async (req: any, res) => {

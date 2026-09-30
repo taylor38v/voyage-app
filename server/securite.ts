@@ -14,7 +14,8 @@ const CSP = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https:",
-  "connect-src 'self' https://api.stripe.com https://api.openweathermap.org",
+  // Le service worker (sw.js) télécharge tuiles, photos et polices via fetch() : connect-src doit les autoriser
+  "connect-src 'self' https://api.stripe.com https://api.openweathermap.org https://*.tile.openstreetmap.org https://*.wikimedia.org https://fonts.googleapis.com https://fonts.gstatic.com",
   "frame-src 'self' https://www.google.com https://js.stripe.com https://checkout.stripe.com",
   "frame-ancestors 'none'",
   "object-src 'none'",

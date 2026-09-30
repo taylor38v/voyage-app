@@ -1,0 +1,18 @@
+{
+  "name": "Voyageo, mon carnet de voyage",
+  "short_name": "Voyageo",
+  "description": "Votre itinéraire, votre carte et vos infos pratiques, même sans réseau.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1120",
+  "theme_color": "#0b1120",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

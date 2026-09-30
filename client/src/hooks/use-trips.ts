@@ -29,17 +29,47 @@ export function useTrip(id: number) {
   });
 }
 
+// Copie locale du voyage partagé : le carnet reste lisible sans réseau (avion, étranger sans data).
+const cleCopie = (token: string) => `voyageo:voyage:${token}`;
+
+export function lireCopieVoyage(token: string): (TripWithDetails & { _horsLigne?: boolean; _copieDu?: string }) | null {
+  try {
+    const brut = localStorage.getItem(cleCopie(token));
+    if (!brut) return null;
+    const { enregistreLe, voyage } = JSON.parse(brut);
+    return { ...voyage, _horsLigne: true, _copieDu: enregistreLe };
+  } catch {
+    return null;
+  }
+}
+
 export function useTripByToken(token: string) {
-  return useQuery<TripWithDetails | null>({
+  return useQuery<(TripWithDetails & { _horsLigne?: boolean; _copieDu?: string }) | null>({
     queryKey: [api.trips.getByToken.path, token],
     queryFn: async () => {
       const url = buildUrl(api.trips.getByToken.path, { token });
-      const res = await fetch(url);
+      let res: Response;
+      try {
+        res = await fetch(url);
+      } catch {
+        const copie = lireCopieVoyage(token);
+        if (copie) return copie;
+        throw new Error("Pas de réseau et aucune copie de ce voyage sur cet appareil");
+      }
       if (res.status === 404) return null;
-      if (!res.ok) throw new Error("Impossible de charger le voyage");
-      return res.json();
+      if (!res.ok) {
+        const copie = lireCopieVoyage(token);
+        if (copie) return copie;
+        throw new Error("Impossible de charger le voyage");
+      }
+      const voyage = await res.json();
+      try {
+        localStorage.setItem(cleCopie(token), JSON.stringify({ enregistreLe: new Date().toISOString(), voyage }));
+      } catch {}
+      return voyage;
     },
     enabled: !!token,
+    retry: (n) => navigator.onLine && n < 2,
   });
 }
 

@@ -24,6 +24,7 @@ app.use((req, res, next) => {
     return next();
   }
   express.json({
+    limit: req.path === "/api/account/branding" ? "400kb" : "100kb", // logo en data URL
     verify: (req, _res, buf) => {
       (req as any).rawBody = buf;
     },
